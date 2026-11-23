@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime
 
-st.set_page_config(page_title="SmartStake V2", page_icon="🎯", layout="centered")
+st.set_page_config(page_title="SmartStake", page_icon="🎯", layout="centered")
 
 DB_FILE = "smartstake_users.json"
 
@@ -70,7 +70,7 @@ def get_current_capital(u_data):
 
 capital_actuel = get_current_capital(user_data)
 
-tab_scan, tab_calc, tab_suivi, tab_pro = st.tabs(["🔎 Scanner", "🧮 Calculateur", "📈 Ma Bankroll", "💎 Pro"])
+tab_calc, tab_suivi, tab_pro = st.tabs(["🧮 Calculateur", "📈 Ma Bankroll", "💎 Pro"])
 
 CHAMPIONNATS = {
     "🇫🇷 Ligue 1 (GitHub)": "https://githubusercontent.com",
@@ -78,14 +78,6 @@ CHAMPIONNATS = {
     "🇪🇸 La Liga": "https://football-data.co.uk",
     "🇮🇹 Serie A": "https://football-data.co.uk",
     "🇩🇪 Bundesliga": "https://football-data.co.uk"
-}
-
-CALENDRIERS = {
-    "🇫🇷 Ligue 1 (GitHub)": "https://githubusercontent.com",
-    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": "https://githubusercontent.com",
-    "🇪🇸 La Liga": "https://githubusercontent.com",
-    "🇮🇹 Serie A": "https://githubusercontent.com",
-    "🇩🇪 Bundesliga": "https://githubusercontent.com"
 }
 
 @st.cache_data(ttl=600)
@@ -96,19 +88,6 @@ def get_data(url):
         return pd.read_csv(io.StringIO(r.text)).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
     except Exception:
         return pd.DataFrame()
-
-@st.cache_data(ttl=3600)
-def get_upcoming_matches(url_json):
-    try:
-        r = requests.get(url_json, timeout=10)
-        data = r.json()
-        prochains = []
-        for m in data.get("matches", []):
-            if "score" not in m or m["score"].get("ft") is None:
-                prochains.append({"Date": m.get("date", ""), "Domicile": m["team1"], "Exterieur": m["team2"]})
-        return prochains[:9]
-    except Exception:
-        return []
 
 def calc_t3(df, eq1, eq2):
     def sg(t):
@@ -127,61 +106,22 @@ def calc_t3(df, eq1, eq2):
     av, an, ad = sl(eq2, False)
     return (g1v + g2d) - (hv + ad), (g1n + g2n) - (hn + an), (g1d + g2v) - (hd + av)
 
-ligue = st.selectbox("Championnat actif", list(CHAMPIONNATS.keys()))
-df = get_data(CHAMPIONNATS[ligue])
-
-with st.expander("📂 Importer un CSV ou liens directs (Saison 2026/2027)"):
-    st.markdown("""
-    * [🇫🇷 Ligue 1 (F1.csv)](https://football-data.co.uk) | [🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League (E0.csv)](https://football-data.co.uk) | [🇪🇸 Liga (SP1.csv)](https://football-data.co.uk)
-    * [🇮🇹 Serie A (I1.csv)](https://football-data.co.uk) | [🇩🇪 Bundesliga (D1.csv)](https://football-data.co.uk) | [🌐 Tous les championnats](https://football-data.co.uk)
-    """)
-    up = st.file_uploader("Charger un fichier CSV :", type=["csv"])
-    if up is not None:
-        df = pd.read_csv(up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
-        st.success(f"Fichier chargé ({len(df)} matchs) !")
-
-with tab_scan:
-    st.subheader("🔎 Scanner — Prochains matchs à venir")
-    st.caption("Identifie les équipes visiteuses sous-cotées pour la prochaine journée (à croiser avec les cotes bookmaker).")
-    if df.empty:
-        st.warning("Charge un fichier CSV ci-dessus pour l'historique statistique.")
-    else:
-        if st.button("⚡ Détecter les cibles du prochain week-end", type="primary", use_container_width=True):
-            a_venir = get_upcoming_matches(CALENDRIERS.get(ligue, ""))
-            if not a_venir:
-                st.info("Calendrier automatique indisponible pour cette ligue. Utilise l'onglet **🧮 Calculateur** pour tester tes affiches !")
-            else:
-                eq_csv = df['HomeTeam'].unique().tolist()
-                def match_name(nom):
-                    for e in eq_csv:
-                        if e.lower() in nom.lower() or nom.lower()[:5] in e.lower():
-                            return e
-                    return None
-
-                cibles = []
-                for m in a_venir:
-                    e1, e2 = match_name(m["Domicile"]), match_name(m["Exterieur"])
-                    if e1 and e2:
-                        t3v, t3n, t3d = calc_t3(df, e1, e2)
-                        if t3d > 0:
-                            ct_dnb = round(1 + (t3v / t3d), 2)
-                            if ct_dnb <= 2.60:
-                                cibles.append({
-                                    "Date": m["Date"],
-                                    "Affiche": f"{e1} vs {e2}",
-                                    "Cible": f"{e2} (DNB)",
-                                    "Cote Juste DNB": ct_dnb,
-                                    "Cote Min. à jouer": round(max(1.90, ct_dnb + 0.05), 2)
-                                })
-                if cibles:
-                    st.success(f"🎯 **{len(cibles)} cible(s) repérée(s) pour la prochaine journée !**")
-                    st.dataframe(pd.DataFrame(cibles), hide_index=True, use_container_width=True)
-                else:
-                    st.info("Aucune cible visiteuse forte détectée sur la prochaine journée.")
-
 with tab_calc:
+    ligue = st.selectbox("Championnat actif", list(CHAMPIONNATS.keys()))
+    df = get_data(CHAMPIONNATS[ligue])
+
+    with st.expander("📂 Importer un CSV ou liens directs (Saison 2026/2027)"):
+        st.markdown("""
+        * [🇫🇷 Ligue 1 (F1.csv)](https://football-data.co.uk) | [🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League (E0.csv)](https://football-data.co.uk) | [🇪🇸 Liga (SP1.csv)](https://football-data.co.uk)
+        * [🇮🇹 Serie A (I1.csv)](https://football-data.co.uk) | [🇩🇪 Bundesliga (D1.csv)](https://football-data.co.uk) | [🌐 Tous les championnats](https://football-data.co.uk)
+        """)
+        up = st.file_uploader("Charger un fichier CSV :", type=["csv"])
+        if up is not None:
+            df = pd.read_csv(up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
+            st.success(f"Fichier chargé ({len(df)} matchs) !")
+
     if df.empty:
-        st.warning("Charge un fichier CSV ci-dessus.")
+        st.warning("⚠️ Aucun fichier chargé. Télécharge un CSV via les liens ci-dessus et importe-le !")
     else:
         eqs = sorted(df['HomeTeam'].unique().tolist())
         col1, col2 = st.columns(2)
@@ -214,4 +154,65 @@ with tab_calc:
                     ct = (1 + t3d / t3v) if (dnb and t3v > 0) else (tot / t3v if t3v > 0 else 99.0)
                     cr = (c1 * (cn - 1) / cn) if dnb else c1
                     cmin, cmax = (1.90, 3.50) if dnb else (2.00, 5.00)
-        
+                    lbl = f"{eq1} ({'DNB' if dnb else '1'})"
+                elif issue == "🤝 Match Nul":
+                    ct = (tot / t3n) if t3n > 0 else 99.0
+                    cr, cmin, cmax, lbl = cn, 2.50, 4.50, "Match Nul"
+                else:
+                    ct = (1 + t3v / t3d) if (dnb and t3d > 0) else (tot / t3d if t3d > 0 else 99.0)
+                    cr = (c2 * (cn - 1) / cn) if dnb else c2
+                    cmin, cmax = (1.90, 3.50) if dnb else (2.00, 5.00)
+                    lbl = f"{eq2} ({'DNB' if dnb else '2'})"
+
+                ok = (cr > ct) and (cmin <= cr <= cmax)
+                obj = (cap_input * (risque_pct / 100.0)) * (cr / 2.0) if ok else 0.0
+                mise = obj / (cr - 1.0) if (ok and cr > 1) else 0.0
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Cote Juste", f"{ct:.2f}")
+                m2.metric("Cote Retenue", f"{cr:.2f}")
+                m3.metric("Mise", f"{mise:.2f} €")
+
+                if ok:
+                    st.success(f"✅ **PARIER {mise:.2f} €** sur **{lbl}** (Gain net : **+{obj:.2f} €**)")
+                    user_data["paris"].append({
+                        "Date": datetime.now().strftime("%d/%m %H:%M"),
+                        "Match": f"{eq1}-{eq2}",
+                        "Choix": lbl,
+                        "Cote": round(cr, 2),
+                        "Mise (€)": round(mise, 2),
+                        "Gain Visé (€)": round(obj, 2),
+                        "Statut": "⏳ En cours"
+                    })
+                    db[st.session_state.user_id] = user_data
+                    save_db(db)
+                else:
+                    st.warning(f"⏸️ **PASSER** (Cote {cr:.2f} vs Juste {ct:.2f} | Zone {cmin:.2f}-{cmax:.2f})")
+
+with tab_suivi:
+    st.subheader(f"📈 Bankroll de {st.session_state.user_id}")
+    b1, b2 = st.columns(2)
+    nouv_dep = b1.number_input("Capital de départ (€)", min_value=1.0, value=float(user_data.get("capital_depart", 20.0)), step=5.0)
+    if nouv_dep != user_data.get("capital_depart", 20.0):
+        user_data["capital_depart"] = nouv_dep
+        db[st.session_state.user_id] = user_data
+        save_db(db)
+        st.rerun()
+
+    b2.metric("Capital Actuel Calculé", f"{capital_actuel:.2f} €", delta=f"{capital_actuel - nouv_dep:+.2f} €")
+
+    if not user_data["paris"]:
+        st.info("Aucun pari enregistré. Valide un signal dans le Calculateur !")
+    else:
+        st.markdown("#### Mettre à jour le résultat d'un pari :")
+        for i, p in enumerate(user_data["paris"]):
+            col_info, col_stat = st.columns(2)
+            col_info.write(f"**{p['Match']}** — {p['Choix']} (@{p['Cote']}) | Mise : {p['Mise (€)']}€")
+            nouv_stat = col_stat.selectbox(
+                "Statut",
+                ["⏳ En cours", "✅ Gagné", "🔄 Remboursé", "❌ Perdu"],
+                index=["⏳ En cours", "✅ Gagné", "🔄 Remboursé", "❌ Perdu"].index(p.get("Statut", "⏳ En cours")),
+                key=f"stat_{i}",
+                label_visibility="collapsed"
+            )
+            if nouv_stat != p.get("Statut"):
