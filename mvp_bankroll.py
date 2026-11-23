@@ -35,8 +35,7 @@ if "analyses_count" not in st.session_state:
 if "is_pro" not in st.session_state:
     st.session_state.is_pro = False
 
-# En-tête + Connexion rapide utilisateur
-c_t, c_b = st.columns()
+c_t, c_b = st.columns(2)
 c_t.title("🎯 SmartStake")
 c_b.info("PRO ✨" if st.session_state.is_pro else f"Essai : {max(0, 3 - st.session_state.analyses_count)}/3")
 
@@ -57,7 +56,6 @@ if st.session_state.user_id not in db:
 
 user_data = db[st.session_state.user_id]
 
-# Calcul automatique du capital actuel selon les résultats des paris
 def get_current_capital(u_data):
     cap = float(u_data.get("capital_depart", 20.0))
     for p in u_data.get("paris", []):
@@ -108,7 +106,6 @@ def calc_t3(df, eq1, eq2):
     av, an, ad = sl(eq2, False)
     return (g1v + g2d) - (hv + ad), (g1n + g2n) - (hn + an), (g1d + g2v) - (hd + av)
 
-# Sélecteur global de championnat + import CSV
 ligue = st.selectbox("Championnat actif", list(CHAMPIONNATS.keys()))
 df = get_data(CHAMPIONNATS[ligue])
 
@@ -122,9 +119,6 @@ with st.expander("📂 Importer un CSV ou liens directs (Saison 2026/2027)"):
         df = pd.read_csv(up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
         st.success(f"Fichier chargé ({len(df)} matchs) !")
 
-# ==========================================
-# ONGLET 1 : SCANNER AUTOMATIQUE
-# ==========================================
 with tab_scan:
     st.subheader("🔎 Scanner « Spécial Extérieur DNB »")
     st.caption("Détecte automatiquement les meilleures opportunités sur les dernières affiches du fichier.")
@@ -137,7 +131,6 @@ with tab_scan:
                 st.error("🔒 Limite d'essai atteinte ! Débloque l'onglet 💎 Pro.")
             else:
                 st.session_state.analyses_count += 1
-                # Analyse des 9 derniers matchs du championnat comme échantillon de journée type
                 derniers = df.tail(9)
                 signaux = []
                 col_c2 = 'AvgA' if 'AvgA' in df.columns else ('B365A' if 'B365A' in df.columns else None)
@@ -166,9 +159,6 @@ with tab_scan:
                 else:
                     st.info("Aucun signal DNB (1,90 – 3,50) détecté sur les dernières affiches de ce fichier.")
 
-# ==========================================
-# ONGLET 2 : CALCULATEUR SUR-MESURE
-# ==========================================
 with tab_calc:
     if df.empty:
         st.warning("Charge un fichier CSV ci-dessus.")
@@ -207,3 +197,12 @@ with tab_calc:
                     lbl = f"{eq1} ({'DNB' if dnb else '1'})"
                 elif issue == "🤝 Match Nul":
                     ct = (tot / t3n) if t3n > 0 else 99.0
+                    cr, cmin, cmax, lbl = cn, 2.50, 4.50, "Match Nul"
+                else:
+                    ct = (1 + t3v / t3d) if (dnb and t3d > 0) else (tot / t3d if t3d > 0 else 99.0)
+                    cr = (c2 * (cn - 1) / cn) if dnb else c2
+                    cmin, cmax = (1.90, 3.50) if dnb else (2.00, 5.00)
+                    lbl = f"{eq2} ({'DNB' if dnb else '2'})"
+
+                ok = (cr > ct) and (cmin <= cr <= cmax)
+            
