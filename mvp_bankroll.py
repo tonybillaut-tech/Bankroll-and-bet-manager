@@ -67,7 +67,7 @@ def get_current_capital(u_data):
 
 capital_actuel = get_current_capital(user_data)
 
-tab_calc, tab_suivi, tab_pro = st.tabs(["🧮 Calculateur", "📈 Ma Bankroll", "💎 Pro"])
+tab_calc, tab_suivi, tab_tuto, tab_pro = st.tabs(["🧮 Calculateur", "📈 Bankroll", "📘 Tutoriel", "💎 Pro"])
 
 CHAMPIONNATS = {
     "🇫🇷 Ligue 1 (GitHub)": "https://githubusercontent.com",
@@ -206,6 +206,8 @@ with tab_suivi:
         pd.DataFrame(user_data["paris"]).to_excel(buf, index=False)
         st.download_button("📥 Exporter ma bankroll (.xlsx)", buf.getvalue(), f"smartstake_{st.session_state.user_id}.xlsx", use_container_width=True)
 
-with tab_pro:
-    st.subheader("💎 SmartStake Pro — 29,90 €/an")
-    st.write("Analyses illimitées, réglage du risque sur-mesure, sauvegarde multi-utilisateurs et protection DNB.")
+with tab_tuto:
+    st.subheader("📘 Guide complet SmartStake")
+    st.markdown("""
+    ### 1. Créer son espace et charger les matchs
+    
