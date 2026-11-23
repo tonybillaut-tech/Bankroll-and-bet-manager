@@ -31,12 +31,11 @@ db = load_db()
 for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
     if k not in st.session_state: st.session_state[k] = v
 
-# Bannière Football immédiate
 badge = "PRO ✨" if st.session_state.is_pro else f"Essai gratuit : {max(0, 3 - st.session_state.analyses_count)}/3"
 st.markdown(f"""
 <div class="hero">
     <h1>⚽ SmartStake — Paris Sportifs Foot</h1>
-    <p>Détecteur de Value Bets (1N2 & Remboursé si nul) • Gestion de Bankroll • <b>{badge}</b></p>
+    <p>Algorithme V2 (Forme + Tirs cadrés & Buts) • Bankroll • <b>{badge}</b></p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -90,19 +89,36 @@ def get_data(src):
         return read_clean_csv(io.StringIO(r.text))
     except Exception: return pd.DataFrame()
 
-def calc_t3(df, eq1, eq2):
-    def sg(t):
+# Algorithme V2 : Total 1 - Total 2 pondéré par Tirs cadrés (HST/AST) et Buts (FTHG/FTAG)
+def calc_v2(df, eq1, eq2):
+    def stats_team(t):
         g = df[(df['HomeTeam'] == t) | (df['AwayTeam'] == t)].tail(6)
         v = len(g[((g['HomeTeam'] == t) & (g['FTR'] == 'H')) | ((g['AwayTeam'] == t) & (g['FTR'] == 'A'))])
         n = len(g[g['FTR'] == 'D'])
-        return v, n, len(g) - v - n
+        d = len(g) - v - n
+        # Indice domination offensive (buts + tirs cadrés)
+        dom = 0.0
+        for _, r in g.iterrows():
+            is_h = (r['HomeTeam'] == t)
+            if {'FTHG', 'FTAG'}.issubset(g.columns) and pd.notna(r['FTHG']) and pd.notna(r['FTAG']):
+                dom += (float(r['FTHG']) - float(r['FTAG'])) * (0.15 if is_h else -0.15)
+            if {'HST', 'AST'}.issubset(g.columns) and pd.notna(r['HST']) and pd.notna(r['AST']):
+                dom += (float(r['HST']) - float(r['AST'])) * (0.04 if is_h else -0.04)
+        return v, n, d, dom
+
     def sl(t, h=True):
         s = df[df['HomeTeam'] == t].tail(3) if h else df[df['AwayTeam'] == t].tail(3)
         v = len(s[s['FTR'] == ('H' if h else 'A')]); n = len(s[s['FTR'] == 'D'])
         return v, n, len(s) - v - n
-    g1v, g1n, g1d = sg(eq1); g2v, g2n, g2d = sg(eq2)
+
+    g1v, g1n, g1d, dom1 = stats_team(eq1)
+    g2v, g2n, g2d, dom2 = stats_team(eq2)
     hv, hn, hd = sl(eq1, True); av, an, ad = sl(eq2, False)
-    return (g1v + g2d) - (hv + ad), (g1n + g2n) - (hn + an), (g1d + g2v) - (hd + av)
+
+    t3_1 = max(0.1, (g1v + g2d) - (hv + ad) + (dom1 - dom2))
+    t3_n = max(0.1, (g1n + g2n) - (hn + an))
+    t3_2 = max(0.1, (g1d + g2v) - (hd + av) + (dom2 - dom1))
+    return t3_1, t3_n, t3_2
 
 with tab_calc:
     ligue = st.selectbox("🏟️ Choisir le championnat", list(CHAMPIONNATS.keys()))
@@ -133,14 +149,14 @@ with tab_calc:
             elif eq1 == eq2: st.warning("Choisis deux équipes différentes.")
             else:
                 st.session_state.analyses_count += 1
-                t3v, t3n, t3d = calc_t3(df, eq1, eq2); tot = max(1, t3v + t3n + t3d)
+                t3v, t3n, t3d = calc_v2(df, eq1, eq2); tot = max(1.0, t3v + t3n + t3d)
                 if issue == "🏠 Équipe 1":
-                    ct = (1 + t3d / t3v) if (dnb and t3v > 0) else (tot / t3v if t3v > 0 else 99.0)
+                    ct = (1 + t3d / t3v) if dnb else (tot / t3v)
                     cr = (c1 * (cn - 1) / cn) if dnb else c1
                     cmin, cmax, lbl = (1.90, 3.50, f"{eq1} (DNB)") if dnb else (2.00, 5.00, f"{eq1} (1)")
-                elif issue == "🤝 Match Nul": ct, cr, cmin, cmax, lbl = (tot / t3n if t3n > 0 else 99.0), cn, 2.50, 4.50, "Match Nul"
+                elif issue == "🤝 Match Nul": ct, cr, cmin, cmax, lbl = (tot / t3n), cn, 2.50, 4.50, "Match Nul"
                 else:
-                    ct = (1 + t3v / t3d) if (dnb and t3d > 0) else (tot / t3d if t3d > 0 else 99.0)
+                    ct = (1 + t3v / t3d) if dnb else (tot / t3d)
                     cr = (c2 * (cn - 1) / cn) if dnb else c2
                     cmin, cmax, lbl = (1.90, 3.50, f"{eq2} (DNB)") if dnb else (2.00, 5.00, f"{eq2} (2)")
 
@@ -148,9 +164,10 @@ with tab_calc:
                 obj = (cap_input * (risque_pct / 100.0)) * (cr / 2.0) if ok else 0.0
                 mise = obj / (cr - 1.0) if (ok and cr > 1) else 0.0
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Cote Juste", f"{ct:.2f}"); m2.metric("Cote Jouée", f"{cr:.2f}"); m3.metric("Mise Conseillée", f"{mise:.2f} €")
+                m1.metric("Cote Juste V2", f"{ct:.2f}"); m2.metric("Cote Jouée", f"{cr:.2f}"); m3.metric("Mise Conseillée", f"{mise:.2f} €")
                 if ok:
-                    st.success(f"✅ **VALUE BET DÉTECTÉ — PARIER {mise:.2f} €** sur **{lbl}** (Gain net : **+{obj:.2f} €**)")
+                    conf = "🔥 Confiance Élevée" if (cr / ct) >= 1.12 else "⚖️ Confiance Modérée"
+                    st.success(f"✅ **VALUE BET ({conf}) — PARIER {mise:.2f} €** sur **{lbl}** (Gain net : **+{obj:.2f} €**)")
                     user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2), "Statut": "⏳ En cours"})
                     db[st.session_state.user_id] = user_data; save_db(db)
                 else: st.warning(f"⏸️ **NO BET (PASSER)** — Cote {cr:.2f} vs Cote Juste {ct:.2f}")
@@ -160,13 +177,4 @@ with tab_suivi:
     b1, b2 = st.columns(2)
     nouv_dep = b1.number_input("Capital de départ (€)", min_value=1.0, value=float(user_data.get("capital_depart", 20.0)), step=5.0)
     if nouv_dep != user_data.get("capital_depart", 20.0): user_data["capital_depart"] = nouv_dep; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
-    b2.metric("Bankroll Actuelle", f"{capital_actuel:.2f} €", delta=f"{capital_actuel - nouv_dep:+.2f} €")
-    if not user_data["paris"]: st.info("Aucun pari validé pour l'instant.")
-    else:
-        for i, p in enumerate(user_data["paris"]):
-            col_info, col_stat = st.columns(2)
-            col_info.write(f"⚽ **{p['Match']}** — {p['Choix']} (@{p['Cote']}) | {p['Mise (€)']}€")
-            opts = ["⏳ En cours", "✅ Gagné", "🔄 Remboursé", "❌ Perdu"]
-            nouv_stat = col_stat.selectbox("Statut", opts, index=opts.index(p.get("Statut", "⏳ En cours")), key=f"stat_{i}", label_visibility="collapsed")
-            if nouv_stat != p.get("Statut"): user_data["paris"][i]["Statut"] = nouv_stat; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
-    
+        
