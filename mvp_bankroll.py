@@ -7,7 +7,6 @@ import os
 from datetime import datetime
 
 st.set_page_config(page_title="SmartStake", page_icon="🎯", layout="centered")
-
 DB_FILE = "smartstake_users.json"
 
 def load_db():
@@ -27,18 +26,13 @@ def save_db(data):
         pass
 
 db = load_db()
-
-if "user_id" not in st.session_state:
-    st.session_state.user_id = "Invite"
-if "analyses_count" not in st.session_state:
-    st.session_state.analyses_count = 0
-if "is_pro" not in st.session_state:
-    st.session_state.is_pro = False
+for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 c_t, c_b = st.columns(2)
 c_t.title("🎯 SmartStake")
 c_b.info("PRO ✨" if st.session_state.is_pro else f"Essai : {max(0, 3 - st.session_state.analyses_count)}/3")
-
 st.info("⚖️ **Mentions légales :** Outil statistique d'aide à la décision (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13** (appel non surtaxé).")
 
 with st.expander("👤 Mon Espace Utilisateur (Sauvegarde Bankroll)", expanded=False):
@@ -53,7 +47,6 @@ with st.expander("👤 Mon Espace Utilisateur (Sauvegarde Bankroll)", expanded=F
 
 if st.session_state.user_id not in db:
     db[st.session_state.user_id] = {"capital_depart": 20.0, "paris": [], "is_pro": False}
-
 user_data = db[st.session_state.user_id]
 
 def get_current_capital(u_data):
@@ -66,7 +59,6 @@ def get_current_capital(u_data):
     return round(cap, 2)
 
 capital_actuel = get_current_capital(user_data)
-
 tab_calc, tab_suivi, tab_tuto, tab_pro = st.tabs(["🧮 Calculateur", "📈 Bankroll", "📘 Tutoriel", "💎 Pro"])
 
 CHAMPIONNATS = {
@@ -106,7 +98,6 @@ def calc_t3(df, eq1, eq2):
 with tab_calc:
     ligue = st.selectbox("Championnat actif", list(CHAMPIONNATS.keys()))
     df = get_data(CHAMPIONNATS[ligue])
-
     with st.expander("📂 Importer un CSV ou liens directs (Saison 2026/2027)"):
         st.markdown("[🇫🇷 Ligue 1](https://football-data.co.uk) | [🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League](https://football-data.co.uk) | [🇪🇸 Liga](https://football-data.co.uk) | [🇮🇹 Serie A](https://football-data.co.uk) | [🇩🇪 Bundesliga](https://football-data.co.uk)")
         up = st.file_uploader("Charger un fichier CSV :", type=["csv"])
@@ -121,17 +112,14 @@ with tab_calc:
         col1, col2 = st.columns(2)
         eq1 = col1.selectbox("🏠 Domicile", eqs, index=0)
         eq2 = col2.selectbox("✈️ Extérieur", eqs, index=1 if len(eqs) > 1 else 0)
-
         issue = st.radio("Issue ciblée", ["🏠 Équipe 1", "🤝 Match Nul", "✈️ Équipe 2"], index=2, horizontal=True)
         r1, r2 = st.columns(2)
         cap_input = r1.number_input("Capital actuel (€)", min_value=1.0, value=capital_actuel, step=1.0)
         risque_pct = r2.select_slider("Niveau de risque (%)", options=[2.5, 5.0, 7.5, 10.0], value=5.0)
-
         q1, q2, q3 = st.columns(3)
         c1 = q1.number_input("Cote 1", min_value=1.05, value=2.20, step=0.05)
         cn = q2.number_input("Cote N", min_value=1.50, value=3.30, step=0.05)
         c2 = q3.number_input("Cote 2", min_value=1.05, value=3.10, step=0.05)
-
         dnb = st.toggle("🛡️ Remboursé si nul (DNB)", value=True) if issue != "🤝 Match Nul" else False
 
         if st.button("🚀 Analyser et calculer la mise", type="primary", use_container_width=True):
@@ -143,30 +131,25 @@ with tab_calc:
                 st.session_state.analyses_count += 1
                 t3v, t3n, t3d = calc_t3(df, eq1, eq2)
                 tot = max(1, t3v + t3n + t3d)
-
                 if issue == "🏠 Équipe 1":
                     ct = (1 + t3d / t3v) if (dnb and t3v > 0) else (tot / t3v if t3v > 0 else 99.0)
                     cr = (c1 * (cn - 1) / cn) if dnb else c1
-                    cmin, cmax = (1.90, 3.50) if dnb else (2.00, 5.00)
-                    lbl = f"{eq1} ({'DNB' if dnb else '1'})"
+                    cmin, cmax, lbl = (1.90, 3.50, f"{eq1} (DNB)") if dnb else (2.00, 5.00, f"{eq1} (1)")
                 elif issue == "🤝 Match Nul":
                     ct = (tot / t3n) if t3n > 0 else 99.0
                     cr, cmin, cmax, lbl = cn, 2.50, 4.50, "Match Nul"
                 else:
                     ct = (1 + t3v / t3d) if (dnb and t3d > 0) else (tot / t3d if t3d > 0 else 99.0)
                     cr = (c2 * (cn - 1) / cn) if dnb else c2
-                    cmin, cmax = (1.90, 3.50) if dnb else (2.00, 5.00)
-                    lbl = f"{eq2} ({'DNB' if dnb else '2'})"
+                    cmin, cmax, lbl = (1.90, 3.50, f"{eq2} (DNB)") if dnb else (2.00, 5.00, f"{eq2} (2)")
 
                 ok = (cr > ct) and (cmin <= cr <= cmax)
                 obj = (cap_input * (risque_pct / 100.0)) * (cr / 2.0) if ok else 0.0
                 mise = obj / (cr - 1.0) if (ok and cr > 1) else 0.0
-
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Cote Juste", f"{ct:.2f}")
                 m2.metric("Cote Retenue", f"{cr:.2f}")
                 m3.metric("Mise", f"{mise:.2f} €")
-
                 if ok:
                     st.success(f"✅ **PARIER {mise:.2f} €** sur **{lbl}** (Gain net : **+{obj:.2f} €**)")
                     user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2), "Statut": "⏳ En cours"})
@@ -184,13 +167,10 @@ with tab_suivi:
         db[st.session_state.user_id] = user_data
         save_db(db)
         st.rerun()
-
     b2.metric("Capital Actuel Calculé", f"{capital_actuel:.2f} €", delta=f"{capital_actuel - nouv_dep:+.2f} €")
-
     if not user_data["paris"]:
         st.info("Aucun pari enregistré. Valide un signal dans le Calculateur !")
     else:
-        st.markdown("#### Mettre à jour le résultat d'un pari :")
         for i, p in enumerate(user_data["paris"]):
             col_info, col_stat = st.columns(2)
             col_info.write(f"**{p['Match']}** — {p['Choix']} (@{p['Cote']}) | Mise : {p['Mise (€)']}€")
@@ -201,28 +181,12 @@ with tab_suivi:
                 db[st.session_state.user_id] = user_data
                 save_db(db)
                 st.rerun()
-
         buf = io.BytesIO()
         pd.DataFrame(user_data["paris"]).to_excel(buf, index=False)
         st.download_button("📥 Exporter ma bankroll (.xlsx)", buf.getvalue(), f"smartstake_{st.session_state.user_id}.xlsx", use_container_width=True)
 
 with tab_tuto:
     st.subheader("📘 Mode d'emploi SmartStake")
-        st.write("**1. Ton profil :** Ouvre *👤 Mon Espace Utilisateur* en haut et tape ton prénom pour isoler ton capital et tes paris.")
+    st.write("**1. Ton profil :** Ouvre *👤 Mon Espace Utilisateur* en haut et tape ton prénom pour isoler ton capital et tes paris.")
     st.write("**2. Les données :** Ouvre *📂 Importer un CSV*, clique sur ton championnat pour télécharger le fichier à jour, puis importe-le.")
-    st.write("**3. L'analyse :** Choisis les deux équipes, l'issue (Équipe 2 à l'extérieur est la plus performante) et entre les 3 cotes (1 / N / 2). L'algo compare les 6 derniers matchs aux 3 derniers domicile/extérieur.")
-    st.write("**4. Le filtre DNB & Risque :** Active *Remboursé si nul* pour sécuriser ta mise. Le signal passe au vert uniquement si la cote dépasse la *Cote Juste*. Régle le risque sur 5% (défaut) pour lisser ta courbe.")
-    st.write("**5. Le suivi :** Dans *📈 Bankroll*, passe tes matchs en *Gagné*, *Remboursé* ou *Perdu* pour recalculer ton capital et exporte en Excel.")
-
-with tab_pro:
-    st.subheader("💎 SmartStake Pro — 29,90 €/an")
-    st.write("Analyses illimitées, réglage du risque sur-mesure, sauvegarde multi-utilisateurs et protection DNB.")
-    mail = st.text_input("Ton e-mail pour activer l'accès Pro :")
-    if st.button("🚀 Débloquer l'accès Pro", use_container_width=True):
-        if "@" in mail:
-            st.session_state.is_pro = True
-            user_data["is_pro"] = True
-            db[st.session_state.user_id] = user_data
-            save_db(db)
-            st.success("🎉 Accès Pro activé !")
-            
+    
