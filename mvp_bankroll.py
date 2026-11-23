@@ -169,8 +169,5 @@ with tab_pro:
     st.subheader("💎 SmartStake Pro — 29,90 €/an")
     st.write("Analyses illimitées, réglage du risque sur-mesure, sauvegarde multi-utilisateurs et protection DNB.")
     mail = st.text_input("Ton e-mail pour activer l'accès Pro :")
-    if st.button("🚀 Débloquer l'accès Pro", use_container_width=True):
-    if "@" in mail:
-            st.session_state.is_pro = True; user_data["is_pro"] = True; db[st.session_state.user_id] = user_data; save_db(db)
-            st.success("🎉 Accès Pro activé !")
-            
+    if st.button("🚀 Débloquer l'accès Pro", use_container_width=True) and "@" in mail:
+        
