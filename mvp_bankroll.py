@@ -43,15 +43,16 @@ st.caption("Calculateur automatique de mise dynamique & détection de valeur (Z�
 
 tab_calc, tab_suivi, tab_pro = st.tabs(["🧮 Calculateur", "📈 Ma Bankroll", "💎 Offre Pro"])
 
+# Sources hybrides : ton dépôt GitHub en priorité + liens directs en secours
 CHAMPIONNATS = {
-    "🇫🇷 Ligue 1": "https://football-data.co.uk",
+    "🇫🇷 Ligue 1 (GitHub)": "https://githubusercontent.com",
     "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": "https://football-data.co.uk",
     "🇪🇸 La Liga": "https://football-data.co.uk",
     "🇮🇹 Serie A": "https://football-data.co.uk",
     "🇩🇪 Bundesliga": "https://football-data.co.uk"
 }
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)
 def get_league_data(url):
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -66,8 +67,18 @@ with tab_calc:
     ligue = st.selectbox("Choisir un championnat", list(CHAMPIONNATS.keys()))
     df = get_league_data(CHAMPIONNATS[ligue])
 
+    # Option d'import CSV manuel en secours ou pour d'autres championnats
+    with st.expander("📂 Ou importer un fichier CSV depuis mon téléphone"):
+        fichier_csv = st.file_uploader("Sélectionne un fichier CSV (format Football-Data)", type=["csv"])
+        if fichier_csv is not None:
+            try:
+                df = pd.read_csv(fichier_csv).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
+                st.success(f"Fichier chargé avec succès ({len(df)} matchs) !")
+            except Exception as e:
+                st.error(f"Format de fichier non reconnu : {e}")
+
     if df.empty:
-        st.warning("Données indisponibles pour le moment pour ce championnat.")
+        st.warning("⚠️ Aucun fichier détecté sur GitHub pour ce championnat. Importe ton fichier **F1.csv** dans ton dépôt GitHub ou utilise le menu **📂 Importer un fichier CSV** juste au-dessus !")
     else:
         equipes = sorted(df['HomeTeam'].unique().tolist())
         c1, c2 = st.columns(2)
@@ -197,4 +208,4 @@ with tab_pro:
             st.success("🎉 Merci ! Ton accès Pro est débloqué pour cette session de test.")
         else:
             st.warning("Veuillez entrer une adresse e-mail valide.")
-                
+        
