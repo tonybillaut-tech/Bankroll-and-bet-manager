@@ -207,7 +207,5 @@ with tab_suivi:
         st.download_button("📥 Exporter ma bankroll (.xlsx)", buf.getvalue(), f"smartstake_{st.session_state.user_id}.xlsx", use_container_width=True)
 
 with tab_tuto:
-    st.subheader("📘 Guide complet SmartStake")
-    st.markdown("""
-    ### 1. Créer son espace et charger les matchs
+    st.subheader("📘 Mode d'emploi SmartStake")
     
