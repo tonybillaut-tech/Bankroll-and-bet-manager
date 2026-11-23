@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import requests
 import io
 from datetime import datetime
 
@@ -53,7 +54,10 @@ CHAMPIONNATS = {
 @st.cache_data(ttl=3600)
 def get_league_data(url):
     try:
-        df = pd.read_csv(url)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        df = pd.read_csv(io.StringIO(response.text))
         return df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
     except Exception:
         return pd.DataFrame()
@@ -142,7 +146,7 @@ with tab_calc:
                     st.success(f"✅ **SIGNAL VALIDÉ :** Miser **{mise:.2f} €** sur **{label_pari}** (Gain net visé : **+{objectif:.2f} €**).")
                     new_row = pd.DataFrame([{
                         "Date": datetime.now().strftime("%d/%m %H:%M"),
-                        "Championnat": ligue.split(" ")[1],
+                        "Championnat": ligue.split(" ", 1)[1],
                         "Match": f"{eq1} - {eq2}",
                         "Choix": label_pari,
                         "Cote": round(cote_reelle, 2),
@@ -193,4 +197,4 @@ with tab_pro:
             st.success("🎉 Merci ! Ton accès Pro est débloqué pour cette session de test.")
         else:
             st.warning("Veuillez entrer une adresse e-mail valide.")
-                               
+                
