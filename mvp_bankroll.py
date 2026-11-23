@@ -42,7 +42,7 @@ c_b.info("PRO ✨" if st.session_state.is_pro else f"Essai : {max(0, 3 - st.sess
 st.info("⚖️ **Mentions légales :** Outil statistique d'aide à la décision (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13** (appel non surtaxé).")
 
 with st.expander("👤 Mon Espace Utilisateur (Sauvegarde Bankroll)", expanded=False):
-    pseudo = st.text_input("Entre ton pseudo ou e-mail pour charger/sauvegarder ton profil :", value=st.session_state.user_id)
+    pseudo = st.text_input("Pseudo ou e-mail :", value=st.session_state.user_id)
     if pseudo and pseudo != st.session_state.user_id:
         st.session_state.user_id = pseudo
         if pseudo not in db:
@@ -59,13 +59,10 @@ user_data = db[st.session_state.user_id]
 def get_current_capital(u_data):
     cap = float(u_data.get("capital_depart", 20.0))
     for p in u_data.get("paris", []):
-        statut = p.get("Statut", "⏳ En cours")
-        mise = float(p.get("Mise (€)", 0))
-        gain_net = float(p.get("Gain Visé (€)", 0))
-        if statut == "✅ Gagné":
-            cap += gain_net
-        elif statut == "❌ Perdu":
-            cap -= mise
+        if p.get("Statut") == "✅ Gagné":
+            cap += float(p.get("Gain Visé (€)", 0))
+        elif p.get("Statut") == "❌ Perdu":
+            cap -= float(p.get("Mise (€)", 0))
     return round(cap, 2)
 
 capital_actuel = get_current_capital(user_data)
@@ -111,10 +108,7 @@ with tab_calc:
     df = get_data(CHAMPIONNATS[ligue])
 
     with st.expander("📂 Importer un CSV ou liens directs (Saison 2026/2027)"):
-        st.markdown("""
-        * [🇫🇷 Ligue 1 (F1.csv)](https://football-data.co.uk) | [🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League (E0.csv)](https://football-data.co.uk) | [🇪🇸 Liga (SP1.csv)](https://football-data.co.uk)
-        * [🇮🇹 Serie A (I1.csv)](https://football-data.co.uk) | [🇩🇪 Bundesliga (D1.csv)](https://football-data.co.uk) | [🌐 Tous les championnats](https://football-data.co.uk)
-        """)
+        st.markdown("[🇫🇷 Ligue 1](https://football-data.co.uk) | [🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League](https://football-data.co.uk) | [🇪🇸 Liga](https://football-data.co.uk) | [🇮🇹 Serie A](https://football-data.co.uk) | [🇩🇪 Bundesliga](https://football-data.co.uk)")
         up = st.file_uploader("Charger un fichier CSV :", type=["csv"])
         if up is not None:
             df = pd.read_csv(up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
@@ -175,15 +169,7 @@ with tab_calc:
 
                 if ok:
                     st.success(f"✅ **PARIER {mise:.2f} €** sur **{lbl}** (Gain net : **+{obj:.2f} €**)")
-                    user_data["paris"].append({
-                        "Date": datetime.now().strftime("%d/%m %H:%M"),
-                        "Match": f"{eq1}-{eq2}",
-                        "Choix": lbl,
-                        "Cote": round(cr, 2),
-                        "Mise (€)": round(mise, 2),
-                        "Gain Visé (€)": round(obj, 2),
-                        "Statut": "⏳ En cours"
-                    })
+                    user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2), "Statut": "⏳ En cours"})
                     db[st.session_state.user_id] = user_data
                     save_db(db)
                 else:
@@ -208,11 +194,18 @@ with tab_suivi:
         for i, p in enumerate(user_data["paris"]):
             col_info, col_stat = st.columns(2)
             col_info.write(f"**{p['Match']}** — {p['Choix']} (@{p['Cote']}) | Mise : {p['Mise (€)']}€")
-            nouv_stat = col_stat.selectbox(
-                "Statut",
-                ["⏳ En cours", "✅ Gagné", "🔄 Remboursé", "❌ Perdu"],
-                index=["⏳ En cours", "✅ Gagné", "🔄 Remboursé", "❌ Perdu"].index(p.get("Statut", "⏳ En cours")),
-                key=f"stat_{i}",
-                label_visibility="collapsed"
-            )
+            opts = ["⏳ En cours", "✅ Gagné", "🔄 Remboursé", "❌ Perdu"]
+            nouv_stat = col_stat.selectbox("Statut", opts, index=opts.index(p.get("Statut", "⏳ En cours")), key=f"stat_{i}", label_visibility="collapsed")
             if nouv_stat != p.get("Statut"):
+                user_data["paris"][i]["Statut"] = nouv_stat
+                db[st.session_state.user_id] = user_data
+                save_db(db)
+                st.rerun()
+
+        buf = io.BytesIO()
+        pd.DataFrame(user_data["paris"]).to_excel(buf, index=False)
+        st.download_button("📥 Exporter ma bankroll (.xlsx)", buf.getvalue(), f"smartstake_{st.session_state.user_id}.xlsx", use_container_width=True)
+
+with tab_pro:
+    st.subheader("💎 SmartStake Pro — 29,90 €/an")
+    st.write("Analyses illimitées, réglage du risque sur-mesure, sauvegarde multi-utilisateurs et protection DNB.")
