@@ -43,7 +43,6 @@ st.caption("Calculateur automatique de mise dynamique & détection de valeur (Z�
 
 tab_calc, tab_suivi, tab_pro = st.tabs(["🧮 Calculateur", "📈 Ma Bankroll", "💎 Offre Pro"])
 
-# Sources hybrides : ton dépôt GitHub en priorité + liens directs en secours
 CHAMPIONNATS = {
     "🇫🇷 Ligue 1 (GitHub)": "https://githubusercontent.com",
     "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": "https://football-data.co.uk",
@@ -67,7 +66,6 @@ with tab_calc:
     ligue = st.selectbox("Choisir un championnat", list(CHAMPIONNATS.keys()))
     df = get_league_data(CHAMPIONNATS[ligue])
 
-    # Option d'import CSV manuel en secours ou pour d'autres championnats
     with st.expander("📂 Ou importer un fichier CSV depuis mon téléphone"):
         fichier_csv = st.file_uploader("Sélectionne un fichier CSV (format Football-Data)", type=["csv"])
         if fichier_csv is not None:
@@ -87,16 +85,30 @@ with tab_calc:
         with c2:
             eq2 = st.selectbox("✈️ Extérieur", equipes, index=1 if len(equipes) > 1 else 0)
 
-        st.markdown("### 1. Tes paramètres")
-        p1, p2 = st.columns(2)
-        with p1:
-            capital = st.number_input("Capital actuel (€)", min_value=5.0, value=20.0, step=5.0)
-        with p2:
-            cote_eq2 = st.number_input("Cote Équipe 2 (Extérieur)", min_value=1.05, value=2.45, step=0.05)
+        st.markdown("### 1. Issue ciblée & Capital")
+        issue_choisie = st.radio(
+            "Sur quelle issue souhaites-tu analyser le pari ?",
+            ["🏠 Équipe 1 (Domicile)", "🤝 Match Nul", "✈️ Équipe 2 (Extérieur)"],
+            index=2,
+            horizontal=True
+        )
 
-        mode_dnb = st.toggle("🛡️ Activer la protection « Remboursé si nul » (DNB)", value=True)
-        if mode_dnb:
-            cote_nul = st.number_input("Cote du Match Nul (pour calcul DNB auto)", min_value=1.50, value=3.30, step=0.05)
+        capital = st.number_input("Capital actuel (€)", min_value=5.0, value=20.0, step=5.0)
+
+        st.markdown("### 2. Cotes du bookmaker (1N2)")
+        q1, q2, q3 = st.columns(3)
+        with q1:
+            cote_1 = st.number_input("Cote 1", min_value=1.05, value=2.20, step=0.05)
+        with q2:
+            cote_n = st.number_input("Cote N", min_value=1.50, value=3.30, step=0.05)
+        with q3:
+            cote_2 = st.number_input("Cote 2", min_value=1.05, value=3.10, step=0.05)
+
+        # Le DNB n'a de sens que si on joue Équipe 1 ou Équipe 2
+        if issue_choisie != "🤝 Match Nul":
+            mode_dnb = st.toggle("🛡️ Activer la protection « Remboursé si nul » (DNB)", value=True)
+        else:
+            mode_dnb = False
 
         if st.button("🚀 Analyser le match et calculer ma mise", type="primary", use_container_width=True):
             if not st.session_state.is_pro and st.session_state.analyses_count >= 3:
@@ -126,22 +138,46 @@ with tab_calc:
                 h_v, h_n, h_d = stats_lieu(eq1, True)
                 a_v, a_n, a_d = stats_lieu(eq2, False)
 
+                # Soustraction Total 1 - Total 2
                 t3_v = (g1_v + g2_d) - (h_v + a_d)
                 t3_n = (g1_n + g2_n) - (h_n + a_n)
                 t3_d = (g1_d + g2_v) - (h_d + a_v)
 
-                if mode_dnb:
-                    cote_theo = (1 + (t3_v / t3_d)) if t3_d > 0 else 99.0
-                    cote_reelle = (cote_eq2 * (cote_nul - 1)) / cote_nul
-                    cote_min, cote_max = 1.90, 3.50
-                    label_pari = f"{eq2} (Remboursé si nul)"
-                else:
-                    somme_t3 = max(1, t3_v + t3_n + t3_d)
-                    prob_2 = t3_d / somme_t3
-                    cote_theo = (1 / prob_2) if prob_2 > 0 else 99.0
-                    cote_reelle = cote_eq2
-                    cote_min, cote_max = 2.00, 5.00
-                    label_pari = f"{eq2} (Victoire sèche)"
+                somme_t3 = max(1, t3_v + t3_n + t3_d)
+
+                # Calcul selon l'issue sélectionnée par le parieur
+                if issue_choisie == "🏠 Équipe 1 (Domicile)":
+                    if mode_dnb:
+                        cote_theo = (1 + (t3_d / t3_v)) if t3_v > 0 else 99.0
+                        cote_reelle = (cote_1 * (cote_n - 1)) / cote_n
+                        cote_min, cote_max = 1.90, 3.50
+                        label_pari = f"{eq1} (Remboursé si nul)"
+                    else:
+                        prob_1 = t3_v / somme_t3
+                        cote_theo = (1 / prob_1) if prob_1 > 0 else 99.0
+                        cote_reelle = cote_1
+                        cote_min, cote_max = 2.00, 5.00
+                        label_pari = f"{eq1} (Victoire sèche)"
+
+                elif issue_choisie == "🤝 Match Nul":
+                    prob_n = t3_n / somme_t3
+                    cote_theo = (1 / prob_n) if prob_n > 0 else 99.0
+                    cote_reelle = cote_n
+                    cote_min, cote_max = 2.50, 4.50
+                    label_pari = "Match Nul (1N2)"
+
+                else:  # Équipe 2 (Extérieur)
+                    if mode_dnb:
+                        cote_theo = (1 + (t3_v / t3_d)) if t3_d > 0 else 99.0
+                        cote_reelle = (cote_2 * (cote_n - 1)) / cote_n
+                        cote_min, cote_max = 1.90, 3.50
+                        label_pari = f"{eq2} (Remboursé si nul)"
+                    else:
+                        prob_2 = t3_d / somme_t3
+                        cote_theo = (1 / prob_2) if prob_2 > 0 else 99.0
+                        cote_reelle = cote_2
+                        cote_min, cote_max = 2.00, 5.00
+                        label_pari = f"{eq2} (Victoire sèche)"
 
                 valide = (cote_reelle > cote_theo) and (cote_min <= cote_reelle <= cote_max)
                 objectif = (capital / 20.0) * (cote_reelle / 2.0) if valide else 0.0
@@ -167,7 +203,7 @@ with tab_calc:
                     }])
                     st.session_state.historique = pd.concat([st.session_state.historique, new_row], ignore_index=True)
                 else:
-                    st.warning(f"⏸️ **NO BET (Passer) :** La cote ({cote_reelle:.2f}) ne présente pas assez de valeur face à l'estimation ({cote_theo:.2f}) ou sort de la zone de sécurité.")
+                    st.warning(f"⏸️ **NO BET (Passer) :** La cote ({cote_reelle:.2f}) ne présente pas assez de valeur face à l'estimation ({cote_theo:.2f}) ou sort de la zone de sécurité ({cote_min:.2f} – {cote_max:.2f}).")
 
 with tab_suivi:
     st.subheader("📈 Historique de tes signaux validés")
@@ -182,30 +218,4 @@ with tab_suivi:
         buf.seek(0)
         st.download_button(
             "📥 Exporter mon historique (.xlsx)",
-            data=buf,
-            file_name="smartstake_export.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-
-with tab_pro:
-    st.subheader("💎 Passe à SmartStake Pro")
-    st.markdown("""
-    **Arrête de perdre du temps sur Excel et sécurise ta gestion de bankroll :**
-    * ✅ **Analyses illimitées** sur les 5 grands championnats européens
-    * ✅ **Calcul automatique des mises** (lissage du risque intégré)
-    * ✅ **Alertes Value Bets** dès l'ouverture des cotes
-    * ✅ **Synchronisation Cloud** de ta bankroll sur mobile
-    """)
     
-    st.info("🔥 **Offre de lancement : 29,90 € / an** (soit 2,49 € / mois — rentabilisé dès ton premier pari gagnant).")
-    
-    email_test = st.text_input("Entre ton e-mail pour recevoir ton accès illimité :")
-    if st.button("🚀 Activer mon accès Pro (Test Gratuit 7 jours)", type="primary", use_container_width=True):
-        if "@" in email_test:
-            st.session_state.is_pro = True
-            st.balloons()
-            st.success("🎉 Merci ! Ton accès Pro est débloqué pour cette session de test.")
-        else:
-            st.warning("Veuillez entrer une adresse e-mail valide.")
-        
