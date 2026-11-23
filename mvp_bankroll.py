@@ -11,11 +11,14 @@ if "analyses_count" not in st.session_state:
 if "is_pro" not in st.session_state:
     st.session_state.is_pro = False
 if "historique" not in st.session_state:
-    st.session_state.historique = pd.DataFrame(columns=["Date", "Match", "Choix", "Cote", "Mise (€)", "Gain Visé (€)"])
+    st.session_state.historique = pd.DataFrame(columns=["Date", "Match", "Choix", "Cote", "Risque", "Mise (€)", "Gain Visé (€)"])
 
 c_t, c_b = st.columns([3, 1])
 c_t.title("🎯 SmartStake")
 c_b.info("PRO ✨" if st.session_state.is_pro else f"Essai : {max(0, 3 - st.session_state.analyses_count)}/3")
+
+# 1. Mentions légales et prévention visibles dès l'accueil
+st.info("⚖️ **Mentions légales :** SmartStake est un outil statistique d'aide à la gestion de bankroll (aucune garantie de gain). **18+ | Jouer comporte des risques** (endettement, isolement, dépendance) : appelez le **09 74 75 13 13** (appel non surtaxé).")
 
 tab1, tab2, tab3 = st.tabs(["🧮 Calculateur", "📈 Suivi", "💎 Pro"])
 
@@ -40,13 +43,24 @@ with tab1:
     ligue = st.selectbox("Championnat", list(CHAMPIONNATS.keys()))
     df = get_data(CHAMPIONNATS[ligue])
 
-    with st.expander("📂 Ou importer un CSV depuis le téléphone"):
-        up = st.file_uploader("Fichier CSV", type=["csv"])
+    # 3. Liens utiles et import CSV depuis le téléphone
+    with st.expander("📂 Importer un fichier CSV ou télécharger les données"):
+        st.markdown("""
+        **🔗 Liens directs vers les fichiers CSV officiels (Saison 2026/2027) :**
+        * [🇫🇷 France — Ligue 1 (F1.csv)](https://football-data.co.uk) | [Ligue 2 (F2.csv)](https://football-data.co.uk)
+        * [🏴󠁧󠁢󠁥󠁮󠁧󠁿 Angleterre — Premier League (E0.csv)](https://football-data.co.uk)
+        * [🇪🇸 Espagne — La Liga (SP1.csv)](https://football-data.co.uk)
+        * [🇮🇹 Italie — Serie A (I1.csv)](https://football-data.co.uk)
+        * [🇩🇪 Allemagne — Bundesliga (D1.csv)](https://football-data.co.uk)
+        * [🌐 Tous les championnats (Football-Data.co.uk)](https://football-data.co.uk)
+        """)
+        up = st.file_uploader("Charge ici le fichier CSV téléchargé :", type=["csv"])
         if up is not None:
             df = pd.read_csv(up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
+            st.success(f"Fichier chargé ({len(df)} matchs) !")
 
     if df.empty:
-        st.warning("Charge ton fichier F1.csv sur GitHub ou via le menu ci-dessus.")
+        st.warning("⚠️ Aucun fichier chargé. Télécharge un CSV via les liens ci-dessus et importe-le !")
     else:
         eqs = sorted(df['HomeTeam'].unique().tolist())
         col1, col2 = st.columns(2)
@@ -54,7 +68,16 @@ with tab1:
         eq2 = col2.selectbox("✈️ Extérieur", eqs, index=1 if len(eqs) > 1 else 0)
 
         issue = st.radio("Issue ciblée", ["🏠 Équipe 1", "🤝 Match Nul", "✈️ Équipe 2"], index=2, horizontal=True)
-        capital = st.number_input("Capital actuel (€)", min_value=5.0, value=20.0, step=5.0)
+
+        # 2. Choix du capital et du niveau de risque (5% par défaut)
+        r1, r2 = st.columns(2)
+        capital = r1.number_input("Capital actuel (€)", min_value=5.0, value=20.0, step=5.0)
+        risque_pct = r2.select_slider(
+            "Niveau de risque (%)",
+            options=[2.5, 5.0, 7.5, 10.0],
+            value=5.0,
+            format_func=lambda x: f"{x} % {'(Défaut)' if x == 5.0 else ''}"
+        )
 
         q1, q2, q3 = st.columns(3)
         c1 = q1.number_input("Cote 1", min_value=1.05, value=2.20, step=0.05)
@@ -106,7 +129,8 @@ with tab1:
                     lbl = f"{eq2} ({'DNB' if dnb else '2'})"
 
                 ok = (cr > ct) and (cmin <= cr <= cmax)
-                obj = (capital / 20.0) * (cr / 2.0) if ok else 0.0
+                # Calcul dynamique selon le risque choisi (5% = Capital * 0.05 = Capital / 20)
+                obj = (capital * (risque_pct / 100.0)) * (cr / 2.0) if ok else 0.0
                 mise = obj / (cr - 1.0) if (ok and cr > 1) else 0.0
 
                 m1, m2, m3 = st.columns(3)
@@ -115,8 +139,8 @@ with tab1:
                 m3.metric("Mise", f"{mise:.2f} €")
 
                 if ok:
-                    st.success(f"✅ **PARIER {mise:.2f} €** sur **{lbl}** (Gain net : **+{obj:.2f} €**)")
-                    row = pd.DataFrame([{"Date": datetime.now().strftime("%d/%m %H:%M"), "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2)}])
+                    st.success(f"✅ **PARIER {mise:.2f} €** sur **{lbl}** (Risque {risque_pct} % | Gain net : **+{obj:.2f} €**)")
+                    row = pd.DataFrame([{"Date": datetime.now().strftime("%d/%m %H:%M"), "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Risque": f"{risque_pct}%", "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2)}])
                     st.session_state.historique = pd.concat([st.session_state.historique, row], ignore_index=True)
                 else:
                     st.warning(f"⏸️ **PASSER** (Cote {cr:.2f} vs Juste {ct:.2f} | Zone {cmin:.2f}-{cmax:.2f})")
@@ -132,10 +156,10 @@ with tab2:
 
 with tab3:
     st.subheader("💎 SmartStake Pro — 29,90 €/an")
-    st.write("Analyses illimitées, calcul automatique des mises et protection DNB.")
+    st.write("Analyses illimitées, réglage du risque sur-mesure et protection DNB.")
     mail = st.text_input("Ton e-mail pour l'essai gratuit :")
     if st.button("🚀 Débloquer l'accès Pro", use_container_width=True):
         if "@" in mail:
             st.session_state.is_pro = True
             st.success("🎉 Accès Pro activé !")
-                
+                    
