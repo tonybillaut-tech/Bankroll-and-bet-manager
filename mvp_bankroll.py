@@ -208,4 +208,21 @@ with tab_suivi:
 
 with tab_tuto:
     st.subheader("📘 Mode d'emploi SmartStake")
-    
+        st.write("**1. Ton profil :** Ouvre *👤 Mon Espace Utilisateur* en haut et tape ton prénom pour isoler ton capital et tes paris.")
+    st.write("**2. Les données :** Ouvre *📂 Importer un CSV*, clique sur ton championnat pour télécharger le fichier à jour, puis importe-le.")
+    st.write("**3. L'analyse :** Choisis les deux équipes, l'issue (Équipe 2 à l'extérieur est la plus performante) et entre les 3 cotes (1 / N / 2). L'algo compare les 6 derniers matchs aux 3 derniers domicile/extérieur.")
+    st.write("**4. Le filtre DNB & Risque :** Active *Remboursé si nul* pour sécuriser ta mise. Le signal passe au vert uniquement si la cote dépasse la *Cote Juste*. Régle le risque sur 5% (défaut) pour lisser ta courbe.")
+    st.write("**5. Le suivi :** Dans *📈 Bankroll*, passe tes matchs en *Gagné*, *Remboursé* ou *Perdu* pour recalculer ton capital et exporte en Excel.")
+
+with tab_pro:
+    st.subheader("💎 SmartStake Pro — 29,90 €/an")
+    st.write("Analyses illimitées, réglage du risque sur-mesure, sauvegarde multi-utilisateurs et protection DNB.")
+    mail = st.text_input("Ton e-mail pour activer l'accès Pro :")
+    if st.button("🚀 Débloquer l'accès Pro", use_container_width=True):
+        if "@" in mail:
+            st.session_state.is_pro = True
+            user_data["is_pro"] = True
+            db[st.session_state.user_id] = user_data
+            save_db(db)
+            st.success("🎉 Accès Pro activé !")
+            
