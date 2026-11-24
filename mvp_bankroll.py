@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests, io, json, os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="SmartStake Football", page_icon="⚽", layout="centered")
 
@@ -57,12 +57,12 @@ capital_actuel = get_cap(user_data)
 tab_calc, tab_suivi, tab_tuto, tab_pro = st.tabs(["⚽ Analyse Match", "💰 Ma Bankroll", "📘 Tutoriel", "🏆 Offre Pro"])
 
 CHAMPIONNATS = {
-    "🇫🇷 Ligue 1": ("F1", "4334"), "🇫🇷 Ligue 2": ("F2", "4401"),
-    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": ("E0", "4328"), "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship": ("E1", "4329"),
-    "🇪🇸 La Liga": ("SP1", "4335"), "🇮🇹 Serie A": ("I1", "4332"),
-    "🇮🇹 Serie B": ("I2", "4333"), "🇩🇪 Bundesliga": ("D1", "4331"),
-    "🇵🇹 Liga Portugal": ("P1", "4344"), "🇳🇱 Eredivisie": ("N1", "4337"),
-    "🇧🇪 Pro League": ("B1", "4338"), "🇬🇷 Super League": ("G1", "4336")
+    "🇫🇷 Ligue 1": ("F1", "fra.1"), "🇫🇷 Ligue 2": ("F2", "fra.2"),
+    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": ("E0", "eng.1"), "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship": ("E1", "eng.2"),
+    "🇪🇸 La Liga": ("SP1", "esp.1"), "🇮🇹 Serie A": ("I1", "ita.1"),
+    "🇮🇹 Serie B": ("I2", "ita.2"), "🇩🇪 Bundesliga": ("D1", "ger.1"),
+    "🇵🇹 Liga Portugal": ("P1", "por.1"), "🇳🇱 Eredivisie": ("N1", "ned.1"),
+    "🇧🇪 Pro League": ("B1", "bel.1"), "🇬🇷 Super League": ("G1", "gre.1")
 }
 
 def read_clean_csv(source):
@@ -75,22 +75,28 @@ def read_clean_csv(source):
 
 @st.cache_data(ttl=1800)
 def get_data(codes):
-    code, sdb_id = codes
+    code, espn_code = codes
     for path in [f"{code}.csv", f"data/{code}.csv"]:
         if os.path.exists(path):
             df = read_clean_csv(path)
             if not df.empty: return df
     try:
-        r = requests.get(f"https://thesportsdb.com{sdb_id}", timeout=8)
+        d2 = datetime.now().strftime("%Y%m%d")
+        d1 = (datetime.now() - timedelta(days=45)).strftime("%Y%m%d")
+        url = f"https://espn.com{espn_code}/scoreboard?dates={d1}-{d2}&limit=100"
+        r = requests.get(url, timeout=8)
         if r.status_code == 200:
-            events = r.json().get("events") or []
             rows = []
-            for e in reversed(events):
-                hs, as_ = e.get("intHomeScore"), e.get("intAwayScore")
-                if hs is not None and as_ is not None:
-                    h, a = int(hs), int(as_)
-                    ftr = "H" if h > a else ("A" if a > h else "D")
-                    rows.append({"HomeTeam": e["strHomeTeam"], "AwayTeam": e["strAwayTeam"], "FTHG": h, "FTAG": a, "FTR": ftr})
+            for ev in r.json().get("events", []):
+                comp = ev.get("competitions", [{}])[0]
+                if comp.get("status", {}).get("type", {}).get("completed"):
+                    teams = comp.get("competitors", [])
+                    h_t = next((t for t in teams if t.get("homeAway") == "home"), None)
+                    a_t = next((t for t in teams if t.get("homeAway") == "away"), None)
+                    if h_t and a_t:
+                        hg, ag = int(h_t.get("score", 0)), int(a_t.get("score", 0))
+                        ftr = "H" if hg > ag else ("A" if ag > hg else "D")
+                        rows.append({"HomeTeam": h_t["team"]["shortDisplayName"], "AwayTeam": a_t["team"]["shortDisplayName"], "FTHG": hg, "FTAG": ag, "FTR": ftr})
             if rows: return pd.DataFrame(rows)
     except Exception: pass
     return pd.DataFrame()
@@ -127,7 +133,7 @@ with tab_calc:
     df = get_data(CHAMPIONNATS[ligue])
     if df.empty: st.warning("⚠️ Impossible de joindre le flux sportif pour cette ligue.")
     else:
-        st.caption(f"✅ Flux actif : **{len(df)} derniers matchs** analysés automatiquement.")
+        st.caption(f"✅ Flux actif : **{len(df)} matchs** analysés automatiquement.")
         eqs = sorted(list(set(df['HomeTeam'].tolist() + df['AwayTeam'].tolist())))
         col1, col2 = st.columns(2)
         eq1 = col1.selectbox("🏠 Équipe Domicile", eqs, index=0)
@@ -165,11 +171,4 @@ with tab_calc:
                 if ok:
                     conf = "🔥 Confiance Élevée" if (cr / ct) >= 1.12 else "⚖️ Confiance Modérée"
                     st.success(f"✅ **VALUE BET ({conf}) — PARIER {mise:.2f} €** sur **{lbl}** (Gain net : **+{obj:.2f} €**)")
-                    user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2), "Statut": "⏳ En cours"})
-                    db[st.session_state.user_id] = user_data; save_db(db)
-                else: st.warning(f"⏸️ **NO BET (PASSER)** — Cote {cr:.2f} vs Cote Juste {ct:.2f}")
-
-with tab_suivi:
-    st.subheader(f"💰 Bankroll de {st.session_state.user_id}")
-    b1, b2 = st.columns(2)
-            
+    
