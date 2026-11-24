@@ -6,7 +6,7 @@ from datetime import datetime
 st.set_page_config(page_title="SmartStake Football", page_icon="⚽", layout="centered")
 st.markdown("""<style>.hero{background:linear-gradient(135deg,#064e3b,#15803d);padding:18px;border-radius:14px;color:white;margin-bottom:12px;border:1px solid #22c55e}.hero h1{margin:0;font-size:1.7rem;color:#fff}.hero p{margin:4px 0 0;font-size:.92rem;color:#dcfce7}.stButton>button[kind="primary"]{background-color:#16a34a;border-color:#16a34a;color:white;font-weight:700;border-radius:10px;height:3em}</style>""", unsafe_allow_html=True)
 
-FD_TOKEN = st.secrets.get("FD_TOKEN", "")
+FD_TOKEN = "d2193c7f2b1e47458dbed1b4e8c10732"
 DB_FILE = "smartstake_users.json"
 
 def load_db():
@@ -59,27 +59,30 @@ CHAMPIONNATS = {
 }
 
 @st.cache_data(ttl=1800)
-def get_data(codes, token):
+def get_data(codes):
     fd_code, csv_code = codes
-    if token:
-        try:
-            r = requests.get(f"https://football-data.org{fd_code}/matches?status=FINISHED", headers={"X-Auth-Token": token}, timeout=10)
-            if r.status_code == 200:
-                rows = []
-                for m in r.json().get("matches", []):
-                    ft = m.get("score", {}).get("fullTime", {})
-                    hg, ag = ft.get("home"), ft.get("away")
-                    if hg is not None and ag is not None:
-                        ftr = "H" if hg > ag else ("A" if ag > hg else "D")
-                        rows.append({"HomeTeam": m["homeTeam"].get("shortName") or m["homeTeam"]["name"], "AwayTeam": m["awayTeam"].get("shortName") or m["awayTeam"]["name"], "FTHG": int(hg), "FTAG": int(ag), "FTR": ftr})
-                if rows: return pd.DataFrame(rows)
-        except Exception: pass
+    err_msg = ""
+    try:
+        r = requests.get(f"https://football-data.org{fd_code}/matches?status=FINISHED", headers={"X-Auth-Token": FD_TOKEN}, timeout=10)
+        if r.status_code == 200:
+            rows = []
+            for m in r.json().get("matches", []):
+                ft = m.get("score", {}).get("fullTime", {})
+                hg, ag = ft.get("home"), ft.get("away")
+                if hg is not None and ag is not None:
+                    ftr = "H" if hg > ag else ("A" if ag > hg else "D")
+                    rows.append({"HomeTeam": m["homeTeam"].get("shortName") or m["homeTeam"]["name"], "AwayTeam": m["awayTeam"].get("shortName") or m["awayTeam"]["name"], "FTHG": int(hg), "FTAG": int(ag), "FTR": ftr})
+            if rows: return pd.DataFrame(rows), ""
+        else:
+            err_msg = f"Code API {r.status_code}"
+    except Exception as e:
+        err_msg = str(e)
     if os.path.exists(f"{csv_code}.csv"):
         try:
             df = pd.read_csv(f"{csv_code}.csv")
-            if {'HomeTeam', 'AwayTeam', 'FTR'}.issubset(df.columns): return df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
+            if {'HomeTeam', 'AwayTeam', 'FTR'}.issubset(df.columns): return df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']), ""
         except Exception: pass
-    return pd.DataFrame()
+    return pd.DataFrame(), err_msg
 
 def calc_v2(df, eq1, eq2):
     def st_t(t):
@@ -104,8 +107,8 @@ def calc_v2(df, eq1, eq2):
 
 with tab_calc:
     ligue = st.selectbox("🏟️ Compétition (Temps Réel)", list(CHAMPIONNATS.keys()))
-    df = get_data(CHAMPIONNATS[ligue], FD_TOKEN)
-    if df.empty: st.warning("⚠️ Ajoute FD_TOKEN dans les Secrets Streamlit.")
+    df, err = get_data(CHAMPIONNATS[ligue])
+    if df.empty: st.warning(f"⚠️ Flux indisponible ({err}).")
     else:
         st.caption(f"✅ Flux officiel actif : **{len(df)} matchs terminés**.")
         eqs = sorted(list(set(df['HomeTeam'].tolist() + df['AwayTeam'].tolist())))
@@ -153,4 +156,4 @@ with tab_suivi:
     if not user_data["paris"]: st.info("Aucun pari validé.")
     else:
         for i, p in enumerate(user_data["paris"]):
-            col_info, col_stat = st.columns(2)
+            
