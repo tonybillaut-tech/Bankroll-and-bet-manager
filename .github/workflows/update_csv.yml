@@ -12,17 +12,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Telechargement des championnats 26/27
+      - name: Generation automatique des CSV (14 Championnats)
         run: |
-          mkdir -p data
-          for code in F1 F2 E0 E1 SP1 I1 I2 D1 P1 N1 B1 G1; do
-            curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -e "https://football-data.co.uk" "https://football-data.co.uk{code}.csv" -o "data/${code}.csv" || true
-          done
+          python3 -c '
+          import os, urllib.request, json, csv
+          os.makedirs("data", exist_ok=True)
+          ligues = {
+              "F1": "fr.1", "F2": "fr.2", "E0": "en.1", "E1": "en.2",
+              "SP1": "es.1", "SP2": "es.2", "I1": "it.1", "I2": "it.2",
+              "D1": "de.1", "D2": "de.2", "P1": "pt.1", "N1": "nl.1",
+              "B1": "be.1", "G1": "gr.1"
+          }
+          for code, of in ligues.items():
+              url = f"https://githubusercontent.com{of}.json"
+              try:
+                  req = urllib.request.urlopen(url, timeout=10)
+                  data = json.loads(req.read().decode("utf-8"))
+                  rows = []
+                  for m in data.get("matches", []):
+                      ft = m.get("score", {}).get("ft")
+                      if isinstance(ft, list) and len(ft) == 2:
+                          ftr = "H" if ft[0] > ft[1] else ("A" if ft[1] > ft[0] else "D")
+                          rows.append([m["team1"], m["team2"], ft[0], ft[1], ftr])
+                  if rows:
+                      with open(f"data/{code}.csv", "w", newline="", encoding="utf-8") as f:
+                          w = csv.writer(f)
+                          w.writerow(["HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"])
+                          w.writerows(rows)
+              except Exception as e:
+                  print(code, e)
+          '
       - name: Sauvegarde dans le depot
         run: |
           git config user.name "SmartStake Bot"
           git config user.email "bot@smartstake.app"
-          git add data/*.csv
+          git add data/
           git commit -m "Auto-update CSV" || exit 0
           git push
           
