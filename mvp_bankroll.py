@@ -1,13 +1,11 @@
 import streamlit as st
 import pandas as pd
-import requests, io, json, os, urllib3
+import requests, io, json, os
 from datetime import datetime
 
-urllib3.disable_warnings()
 st.set_page_config(page_title="SmartStake Foot", page_icon="⚽", layout="centered")
 st.markdown("""<style>.hero{background:linear-gradient(135deg,#064e3b,#15803d);padding:16px;border-radius:14px;color:white;margin-bottom:10px;border:1px solid #22c55e}.hero h1{margin:0;font-size:1.6rem;color:#fff}.hero p{margin:4px 0 0;font-size:.9rem;color:#dcfce7}.stButton>button[kind="primary"]{background-color:#16a34a;border-color:#16a34a;color:white;font-weight:700;border-radius:10px;height:3em}</style>""", unsafe_allow_html=True)
 
-FD_TOKEN = "d2193c7f2b1e47458dbed1b4e8c10732"
 DB_FILE = "smartstake_users.json"
 
 def load_db():
@@ -28,7 +26,7 @@ for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
     if k not in st.session_state: st.session_state[k] = v
 
 badge = "PRO ✨" if st.session_state.is_pro else f"Essai : {max(0, 3 - st.session_state.analyses_count)}/3"
-st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>API Officielle Temps Réel • Algo V2 • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>10 Compétitions Auto • Algo V2 • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
 st.caption("⚖️ Aide statistique (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
 
 with st.expander("👤 Mon Espace Parieur", expanded=False):
@@ -61,27 +59,22 @@ CHAMPIONNATS = {
 
 def get_data(codes):
     fd_code, csv_code = codes
-    err = ""
+    for p in [f"data/{fd_code}.csv", f"{csv_code}.csv"]:
+        if os.path.exists(p):
+            try:
+                df = pd.read_csv(p)
+                if {'HomeTeam', 'AwayTeam', 'FTR'}.issubset(df.columns) and not df.empty:
+                    return df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
+            except Exception: pass
     try:
-        url = "/".join(["https://football-data.org", "v4", "competitions", fd_code, "matches?status=FINISHED"])
-        r = requests.get(url, headers={"X-Auth-Token": FD_TOKEN}, timeout=10, verify=False)
+        raw = f"https://githubusercontent.com{fd_code}.csv"
+        r = requests.get(raw, timeout=6)
         if r.status_code == 200:
-            rows = []
-            for m in r.json().get("matches", []):
-                ft = m.get("score", {}).get("fullTime", {})
-                hg, ag = ft.get("home"), ft.get("away")
-                if hg is not None and ag is not None:
-                    ftr = "H" if hg > ag else ("A" if ag > hg else "D")
-                    rows.append({"HomeTeam": m["homeTeam"].get("shortName") or m["homeTeam"]["name"], "AwayTeam": m["awayTeam"].get("shortName") or m["awayTeam"]["name"], "FTHG": int(hg), "FTAG": int(ag), "FTR": ftr})
-            if rows: return pd.DataFrame(rows), ""
-        else: err = f"Code {r.status_code}"
-    except Exception as e: err = str(e)
-    if os.path.exists(f"{csv_code}.csv"):
-        try:
-            df = pd.read_csv(f"{csv_code}.csv")
-            if {'HomeTeam', 'AwayTeam', 'FTR'}.issubset(df.columns): return df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']), ""
-        except Exception: pass
-    return pd.DataFrame(), err
+            df = pd.read_csv(io.StringIO(r.text))
+            if {'HomeTeam', 'AwayTeam', 'FTR'}.issubset(df.columns) and not df.empty:
+                return df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
+    except Exception: pass
+    return pd.DataFrame()
 
 def calc_v2(df, eq1, eq2):
     def st_t(t):
@@ -105,11 +98,11 @@ def calc_v2(df, eq1, eq2):
     return max(0.1, (g1v + g2d) - (hv + ad) + (dom1 - dom2)), max(0.1, (g1n + g2n) - (hn + an)), max(0.1, (g1d + g2v) - (hd + av) + (dom2 - dom1)), f"{round((bp1 + bc2)/2)} - {round((bp2 + bc1)/2)}"
 
 with tab_calc:
-    ligue = st.selectbox("🏟️ Compétition (Temps Réel)", list(CHAMPIONNATS.keys()))
-    df, err = get_data(CHAMPIONNATS[ligue])
-    if df.empty: st.warning(f"⚠️ Flux indisponible ({err}).")
+    ligue = st.selectbox("🏟️ Compétition (Mise à jour Auto)", list(CHAMPIONNATS.keys()))
+    df = get_data(CHAMPIONNATS[ligue])
+    if df.empty: st.warning("⚠️ Base non encore synchronisée. Relance le robot Actions.")
     else:
-        st.caption(f"✅ Flux officiel actif : **{len(df)} matchs terminés**.")
+        st.caption(f"✅ Base à jour : **{len(df)} matchs terminés**.")
         eqs = sorted(list(set(df['HomeTeam'].tolist() + df['AwayTeam'].tolist())))
         col1, col2 = st.columns(2)
         eq1 = col1.selectbox("🏠 Domicile", eqs, index=0)
@@ -156,4 +149,8 @@ with tab_suivi:
     else:
         for i, p in enumerate(user_data["paris"]):
             c_i, c_s = st.columns(2)
-    
+            c_i.write(f"⚽ **{p['Match']}** — {p['Choix']} (@{p['Cote']}) | {p['Mise (€)']}€")
+            opts = ["⏳ En cours", "✅ Gagné", "🔄 Remboursé", "❌ Perdu"]
+            ns = c_s.selectbox("Statut", opts, index=opts.index(p.get("Statut", "⏳ En cours")), key=f"st_{i}", label_visibility="collapsed")
+            if ns != p.get("Statut"): user_data["paris"][i]["Statut"] = ns; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
+        
