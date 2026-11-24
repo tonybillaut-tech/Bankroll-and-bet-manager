@@ -33,7 +33,7 @@ for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
     if k not in st.session_state: st.session_state[k] = v
 
 badge = "PRO ✨" if st.session_state.is_pro else f"Essai gratuit : {max(0, 3 - st.session_state.analyses_count)}/3"
-st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>14 Championnats Auto • Algorithme V2 • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>Championnats Auto • Algorithme V2 • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
 st.caption("⚖️ Outil statistique d'aide à la décision (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
 
 with st.expander("👤 Mon Espace Parieur (Sauvegarde Bankroll)", expanded=False):
@@ -58,9 +58,8 @@ tab_calc, tab_suivi, tab_tuto, tab_pro = st.tabs(["⚽ Analyse Match", "💰 Ma 
 
 CHAMPIONNATS = {
     "🇫🇷 Ligue 1": "F1", "🇫🇷 Ligue 2": "F2", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": "E0", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship": "E1",
-    "🇪🇸 La Liga": "SP1", "🇪🇸 La Liga 2": "SP2", "🇮🇹 Serie A": "I1", "🇮🇹 Serie B": "I2",
-    "🇩🇪 Bundesliga": "D1", "🇩🇪 2. Bundesliga": "D2", "🇵🇹 Liga Portugal": "P1", "🇳🇱 Eredivisie": "N1",
-    "🇧🇪 Pro League": "B1", "🇬🇷 Super League": "G1"
+    "🇪🇸 La Liga": "SP1", "🇮🇹 Serie A": "I1", "🇮🇹 Serie B": "I2", "🇩🇪 Bundesliga": "D1",
+    "🇵🇹 Liga Portugal": "P1", "🇳🇱 Eredivisie": "N1", "🇧🇪 Pro League": "B1", "🇬🇷 Super League": "G1"
 }
 
 def read_clean_csv(source):
@@ -72,14 +71,22 @@ def read_clean_csv(source):
     return pd.DataFrame()
 
 def get_data(code):
-    for path in [f"data/{code}.csv", f"{code}.csv"]:
-        if os.path.exists(path):
-            df = read_clean_csv(path)
+    sources = [
+        f"data/{code}.csv",
+        f"https://githubusercontent.com{code}.csv",
+        f"https://football-data.co.uk{code}.csv"
+    ]
+    for src in sources:
+        if src.startswith("data/") and not os.path.exists(src): continue
+        try:
+            if src.startswith("http"):
+                r = requests.get(src, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+                if r.status_code != 200 or "<html" in r.text.lower()[:200]: continue
+                df = read_clean_csv(io.StringIO(r.text))
+            else:
+                df = read_clean_csv(src)
             if not df.empty: return df
-    try:
-        r = requests.get(f"https://football-data.co.uk{code}.csv", headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        if r.status_code == 200: return read_clean_csv(io.StringIO(r.text))
-    except Exception: pass
+        except Exception: continue
     return pd.DataFrame()
 
 def calc_v2_and_score(df, eq1, eq2):
@@ -112,7 +119,7 @@ def calc_v2_and_score(df, eq1, eq2):
 with tab_calc:
     ligue = st.selectbox("🏟️ Championnat (Données mises à jour automatiquement)", list(CHAMPIONNATS.keys()))
     df = get_data(CHAMPIONNATS[ligue])
-    if df.empty: st.warning("⏳ Synchronisation des matchs en cours... Actualise dans quelques secondes.")
+    if df.empty: st.warning("⚠️ Données indisponibles pour ce championnat sur la source officielle. Choisis une autre ligue.")
     else:
         st.caption(f"✅ Base à jour : **{len(df)} matchs** analysés automatiquement.")
         eqs = sorted(df['HomeTeam'].unique().tolist())
@@ -160,9 +167,4 @@ with tab_suivi:
     st.subheader(f"💰 Bankroll de {st.session_state.user_id}")
     b1, b2 = st.columns(2)
     nouv_dep = b1.number_input("Capital de départ (€)", min_value=1.0, value=float(user_data.get("capital_depart", 20.0)), step=5.0)
-    if nouv_dep != user_data.get("capital_depart", 20.0): user_data["capital_depart"] = nouv_dep; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
-    b2.metric("Bankroll Actuelle", f"{capital_actuel:.2f} €", delta=f"{capital_actuel - nouv_dep:+.2f} €")
-    if not user_data["paris"]: st.info("Aucun pari validé pour l'instant.")
-    else:
-        for i, p in enumerate(user_data["paris"]):
-            col_info, col_stat = st.columns(2)
+                    
