@@ -125,4 +125,5 @@ with tab_pro:
     st.write("✅ **Analyses illimitées** sur les 10 compétitions en direct + Algo V2 + Score exact Poisson + Vérification auto.")
     mail = st.text_input("Ton e-mail :")
     if st.button("🚀 Activer Pro", type="primary", use_container_width=True) and "@" in mail:
-                
+        st.session_state.is_pro = True; user_data["is_pro"] = True; db[st.session_state.user_id] = user_data; save_db(db); st.success("🎉 Pro activé !")
+                    
