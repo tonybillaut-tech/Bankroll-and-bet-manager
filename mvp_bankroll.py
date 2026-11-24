@@ -14,18 +14,23 @@ db = st.session_state.db
 for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
     if k not in st.session_state: st.session_state[k] = v
 
-badge = "PRO ✨" if st.session_state.is_pro else f"Essai : {max(0, 3 - st.session_state.analyses_count)}/3"
-st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>10 Compétitions Live • Algo V2 • Score Exact • <b>{badge}</b></p></div>', unsafe_allow_html=True)
+hero_box = st.empty()
+def draw_hero():
+    badge = "PRO ✨" if st.session_state.is_pro else f"Essai : {max(0, 3 - st.session_state.analyses_count)}/3"
+    hero_box.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>10 Compétitions Live • Algo V2 • Score Exact • <b>{badge}</b></p></div>', unsafe_allow_html=True)
+
+draw_hero()
 st.caption("⚖️ Aide statistique (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
 
 with st.expander("👤 Mon Espace Parieur", expanded=False):
     pseudo = st.text_input("Pseudo ou e-mail :", value=st.session_state.user_id)
     if pseudo and pseudo != st.session_state.user_id:
         st.session_state.user_id = pseudo
-        if pseudo not in db: db[pseudo] = {"capital_depart": 20.0, "paris": [], "is_pro": False}; save_db(db)
-        st.session_state.is_pro = db[pseudo].get("is_pro", False); st.rerun()
+        if pseudo not in db: db[pseudo] = {"capital_depart": 20.0, "paris": [], "is_pro": False, "essai": 0}; save_db(db)
+        st.session_state.is_pro = db[pseudo].get("is_pro", False)
+        st.session_state.analyses_count = db[pseudo].get("essai", 0); st.rerun()
 
-if st.session_state.user_id not in db: db[st.session_state.user_id] = {"capital_depart": 20.0, "paris": [], "is_pro": False}
+if st.session_state.user_id not in db: db[st.session_state.user_id] = {"capital_depart": 20.0, "paris": [], "is_pro": False, "essai": 0}
 user_data = db[st.session_state.user_id]
 capital_actuel = get_cap(user_data)
 
@@ -61,6 +66,8 @@ with tab_calc:
             elif eq1 == eq2: st.warning("Choisis deux équipes différentes.")
             else:
                 st.session_state.analyses_count += 1
+                user_data["essai"] = st.session_state.analyses_count
+                draw_hero()
                 t3v, t3n, t3d, l1, l2 = calc_v2(df, eq1, eq2); tot = max(1.0, t3v + t3n + t3d)
                 if issue == "🏠 Équipe 1": ct, cr, cmin, cmax, lbl = ((1 + t3d/t3v) if dnb else tot/t3v), ((c1*(cn-1)/cn) if dnb else c1), (1.90 if dnb else 2.00), (3.50 if dnb else 5.00), f"{eq1} ({'DNB' if dnb else '1'})"
                 elif issue == "🤝 Match Nul": ct, cr, cmin, cmax, lbl = tot/t3n, cn, 2.50, 4.50, "Match Nul"
@@ -77,8 +84,8 @@ with tab_calc:
                     st.success(f"✅ **VALUE BET ({conf}) — PARIER {mise:.2f} €** sur **{lbl}** (Gain : **+{obj:.2f} €**)")
                     st.caption("📋 *Check-list rapide : vérifie les blessés/compos 1h avant le match.*")
                     user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Code": fd_code, "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2), "Statut": "⏳ En cours"})
-                    db[st.session_state.user_id] = user_data; save_db(db)
                 else: st.warning(f"⏸️ **NO BET (PASSER)** — Cote {cr:.2f} vs Seuil {ct_sec:.2f}")
+                db[st.session_state.user_id] = user_data; save_db(db)
 
         with st.expander("🎯 Calculateur de Mise — Score Exact (Loi de Poisson)", expanded=False):
             _, _, _, l1, l2 = calc_v2(df, eq1, eq2)
@@ -121,5 +128,5 @@ with tab_bt: render_backtest()
 with tab_tuto: render_guide()
 with tab_pro: render_pro(db, user_data)
 
-st.caption("SmartStake Football v7.5 — Version Finale")
-    
+st.caption("SmartStake Football v7.6 — Version Finale")
+                
