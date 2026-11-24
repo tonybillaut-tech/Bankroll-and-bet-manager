@@ -15,14 +15,14 @@ jobs:
       - name: Telechargement API officielle
         run: |
           python3 - << 'EOF'
-          import os, urllib.request, json, csv
+          import os, urllib.request, json, csv, time
           os.makedirs("data", exist_ok=True)
           token = "d2193c7f2b1e47458dbed1b4e8c10732"
           for code in ["FL1", "PL", "ELC", "PD", "SA", "BL1", "PPL", "DED", "BSA", "CL"]:
               url = f"https://football-data.org{code}/matches?status=FINISHED"
               req = urllib.request.Request(url, headers={"X-Auth-Token": token})
               try:
-                  with urllib.request.urlopen(req, timeout=15) as resp:
+                  with urllib.request.urlopen(req, timeout=20) as resp:
                       data = json.loads(resp.read().decode("utf-8"))
                   rows = []
                   for m in data.get("matches", []):
@@ -38,8 +38,10 @@ jobs:
                           w = csv.writer(f)
                           w.writerow(("HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"))
                           w.writerows(rows)
+                      print("OK", code, len(rows))
               except Exception as e:
-                  print(code, e)
+                  print("ERR", code, e)
+              time.sleep(7)
           EOF
       - name: Sauvegarde dans le depot
         run: |
