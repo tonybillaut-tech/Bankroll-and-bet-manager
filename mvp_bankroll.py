@@ -29,7 +29,7 @@ for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
 
 badge = "PRO ✨" if st.session_state.is_pro else f"Essai : {max(0, 3 - st.session_state.analyses_count)}/3"
 st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>API Officielle Temps Réel • Algo V2 • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
-st.caption("⚖️ Outil statistique d'aide à la décision (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
+st.caption("⚖️ Aide statistique (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
 
 with st.expander("👤 Mon Espace Parieur", expanded=False):
     pseudo = st.text_input("Pseudo ou e-mail :", value=st.session_state.user_id)
@@ -63,8 +63,8 @@ def get_data(codes):
     fd_code, csv_code = codes
     err = ""
     try:
-        api_url = "/".join(["https://football-data.org", "v4", "competitions", fd_code, "matches?status=FINISHED"])
-        r = requests.get(api_url, headers={"X-Auth-Token": FD_TOKEN}, timeout=10, verify=False)
+        url = "/".join(["https://football-data.org", "v4", "competitions", fd_code, "matches?status=FINISHED"])
+        r = requests.get(url, headers={"X-Auth-Token": FD_TOKEN}, timeout=10, verify=False)
         if r.status_code == 200:
             rows = []
             for m in r.json().get("matches", []):
@@ -155,4 +155,5 @@ with tab_suivi:
     if not user_data["paris"]: st.info("Aucun pari validé.")
     else:
         for i, p in enumerate(user_data["paris"]):
-            
+            c_i, c_s = st.columns(2)
+    
