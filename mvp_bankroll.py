@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
-import requests, io, json, os
+import requests, io, json, os, urllib3
 from datetime import datetime
 
+urllib3.disable_warnings()
 st.set_page_config(page_title="SmartStake Foot", page_icon="⚽", layout="centered")
 st.markdown("""<style>.hero{background:linear-gradient(135deg,#064e3b,#15803d);padding:16px;border-radius:14px;color:white;margin-bottom:10px;border:1px solid #22c55e}.hero h1{margin:0;font-size:1.6rem;color:#fff}.hero p{margin:4px 0 0;font-size:.9rem;color:#dcfce7}.stButton>button[kind="primary"]{background-color:#16a34a;border-color:#16a34a;color:white;font-weight:700;border-radius:10px;height:3em}</style>""", unsafe_allow_html=True)
 
@@ -63,7 +64,7 @@ def get_data(codes):
     err = ""
     try:
         api_url = "/".join(["https://football-data.org", "v4", "competitions", fd_code, "matches?status=FINISHED"])
-        r = requests.get(api_url, headers={"X-Auth-Token": FD_TOKEN}, timeout=10)
+        r = requests.get(api_url, headers={"X-Auth-Token": FD_TOKEN}, timeout=10, verify=False)
         if r.status_code == 200:
             rows = []
             for m in r.json().get("matches", []):
@@ -154,4 +155,4 @@ with tab_suivi:
     if not user_data["paris"]: st.info("Aucun pari validé.")
     else:
         for i, p in enumerate(user_data["paris"]):
-            c_i, c_s = st.columns(2)
+            
