@@ -58,13 +58,12 @@ CHAMPIONNATS = {
     "🇧🇷 Brasileirão": ("BSA", "BSA"), "🇪🇺 Ligue des Champions": ("CL", "CL")
 }
 
-@st.cache_data(ttl=1800)
 def get_data(codes):
     fd_code, csv_code = codes
     err = ""
     try:
-        base_url = "https://football-data.org"
-        r = requests.get(base_url + fd_code + "/matches?status=FINISHED", headers={"X-Auth-Token": FD_TOKEN}, timeout=10)
+        api_url = "/".join(["https://football-data.org", "v4", "competitions", fd_code, "matches?status=FINISHED"])
+        r = requests.get(api_url, headers={"X-Auth-Token": FD_TOKEN}, timeout=10)
         if r.status_code == 200:
             rows = []
             for m in r.json().get("matches", []):
@@ -156,4 +155,3 @@ with tab_suivi:
     else:
         for i, p in enumerate(user_data["paris"]):
             c_i, c_s = st.columns(2)
-            
