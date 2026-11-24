@@ -1,0 +1,28 @@
+name: Mise a jour automatique CSV Foot
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Telechargement des championnats 26/27
+        run: |
+          mkdir -p data
+          for code in F1 F2 E0 E1 SP1 I1 D1 P1 N1 B1 G1; do
+            curl -s -A "Mozilla/5.0" "https://football-data.co.uk{code}.csv" -o "data/${code}.csv" || true
+          done
+      - name: Sauvegarde dans le depot
+        run: |
+          git config user.name "SmartStake Bot"
+          git config user.email "bot@smartstake.app"
+          git add data/*.csv
+          git commit -m "Auto-update CSV" || exit 0
+          git push
+          
