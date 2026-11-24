@@ -171,4 +171,39 @@ with tab_calc:
                 else: st.warning(f"⏸️ **NO BET (PASSER)** — Cote {cr:.2f} vs Cote Juste {ct:.2f}")
 
 with tab_suivi:
-                
+    st.subheader(f"💰 Bankroll de {st.session_state.user_id}")
+    b1, b2 = st.columns(2)
+    nouv_dep = b1.number_input("Capital de départ (€)", min_value=1.0, value=float(user_data.get("capital_depart", 20.0)), step=5.0)
+    if nouv_dep != user_data.get("capital_depart", 20.0): user_data["capital_depart"] = nouv_dep; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
+    b2.metric("Bankroll Actuelle", f"{capital_actuel:.2f} €", delta=f"{capital_actuel - nouv_dep:+.2f} €")
+    if not user_data["paris"]: st.info("Aucun pari validé pour l'instant.")
+    else:
+        for i, p in enumerate(user_data["paris"]):
+            col_info, col_stat = st.columns(2)
+            col_info.write(f"⚽ **{p['Match']}** — {p['Choix']} (@{p['Cote']}) | {p['Mise (€)']}€")
+            opts = ["⏳ En cours", "✅ Gagné", "🔄 Remboursé", "❌ Perdu"]
+            nouv_stat = col_stat.selectbox("Statut", opts, index=opts.index(p.get("Statut", "⏳ En cours")), key=f"stat_{i}", label_visibility="collapsed")
+            if nouv_stat != p.get("Statut"): user_data["paris"][i]["Statut"] = nouv_stat; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
+        buf = io.BytesIO(); pd.DataFrame(user_data["paris"]).to_excel(buf, index=False)
+        st.download_button("📥 Exporter mon bilan (.xlsx)", buf.getvalue(), f"smartstake_{st.session_state.user_id}.xlsx", use_container_width=True)
+
+with tab_tuto:
+    st.subheader("📘 Guide du Parieur SmartStake")
+    st.write("**1. Créer son espace :** Ouvre *👤 Mon Espace Parieur* en haut et tape ton pseudo ou e-mail pour isoler ta bankroll.")
+    st.write("**2. Charger un championnat :** La Ligue 1 est incluse. Pour un autre championnat, ouvre *📂 Charger un autre championnat*, télécharge le CSV et importe-le.")
+    st.write("**3. Lancer l'analyse V2 :** Sélectionne les deux équipes, ton issue (1 / N / 2) et entre les 3 cotes. L'algo croise les 6 derniers matchs, les 3 derniers domicile/extérieur, les buts et les tirs cadrés.")
+    st.write("**4. Option DNB & Risque :** Garde *Remboursé si nul* actif pour sécuriser ta mise. Le signal passe au vert uniquement si la cote jouée dépasse la *Cote Juste V2*.")
+    st.write("**5. Gérer sa Bankroll :** Dans *💰 Ma Bankroll*, passe tes matchs en *Gagné*, *Remboursé* ou *Perdu* pour recalculer automatiquement ton capital.")
+
+with tab_pro:
+    st.subheader("🏆 Passe à SmartStake Pro")
+    st.write("✅ **Analyses illimitées** sur tous les championnats européens")
+    st.write("✅ **Algorithme V2 complet** (Tirs cadrés + Buts + Score exact)")
+    st.write("✅ **Option Remboursé si nul (DNB)** et gestion du risque sur-mesure")
+    st.info("🔥 **Offre de lancement : 29,90 € / an** (soit 2,49 € / mois).")
+    mail = st.text_input("Entre ton e-mail pour activer l'accès Pro :")
+    if st.button("🚀 Activer mon accès Pro", type="primary", use_container_width=True) and "@" in mail:
+        st.session_state.is_pro = True; user_data["is_pro"] = True; db[st.session_state.user_id] = user_data; save_db(db); st.success("🎉 Accès Pro activé !")
+
+st.caption("SmartStake Football v2.5")
+
