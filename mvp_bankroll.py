@@ -3,17 +3,17 @@ import pandas as pd
 import requests, io, json, os
 from datetime import datetime
 
-st.set_page_config(page_title="SmartStake Football", page_icon="⚽", layout="centered")
-st.markdown("""<style>.hero{background:linear-gradient(135deg,#064e3b,#15803d);padding:18px;border-radius:14px;color:white;margin-bottom:12px;border:1px solid #22c55e}.hero h1{margin:0;font-size:1.7rem;color:#fff}.hero p{margin:4px 0 0;font-size:.92rem;color:#dcfce7}.stButton>button[kind="primary"]{background-color:#16a34a;border-color:#16a34a;color:white;font-weight:700;border-radius:10px;height:3em}</style>""", unsafe_allow_html=True)
+st.set_page_config(page_title="SmartStake Foot", page_icon="⚽", layout="centered")
+st.markdown("""<style>.hero{background:linear-gradient(135deg,#064e3b,#15803d);padding:16px;border-radius:14px;color:white;margin-bottom:10px;border:1px solid #22c55e}.hero h1{margin:0;font-size:1.6rem;color:#fff}.hero p{margin:4px 0 0;font-size:.9rem;color:#dcfce7}.stButton>button[kind="primary"]{background-color:#16a34a;border-color:#16a34a;color:white;font-weight:700;border-radius:10px;height:3em}</style>""", unsafe_allow_html=True)
 
 FD_TOKEN = "d2193c7f2b1e47458dbed1b4e8c10732"
 DB_FILE = "smartstake_users.json"
 
 def load_db():
-    if os.path.exists(DB_FILE):
-        try:
+    try:
+        if os.path.exists(DB_FILE):
             with open(DB_FILE, "r", encoding="utf-8") as f: return json.load(f)
-        except Exception: return {}
+    except Exception: pass
     return {}
 
 def save_db(data):
@@ -55,13 +55,13 @@ CHAMPIONNATS = {
     "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship": ("ELC", "E1"), "🇪🇸 La Liga": ("PD", "SP1"),
     "🇮🇹 Serie A": ("SA", "I1"), "🇩🇪 Bundesliga": ("BL1", "D1"),
     "🇵🇹 Primeira Liga": ("PPL", "P1"), "🇳🇱 Eredivisie": ("DED", "N1"),
-    "🇧🇷 Brasileirão Série A": ("BSA", "BSA"), "🇪🇺 Ligue des Champions": ("CL", "CL")
+    "🇧🇷 Brasileirão": ("BSA", "BSA"), "🇪🇺 Ligue des Champions": ("CL", "CL")
 }
 
 @st.cache_data(ttl=1800)
 def get_data(codes):
     fd_code, csv_code = codes
-    err_msg = ""
+    err = ""
     try:
         r = requests.get(f"https://football-data.org{fd_code}/matches?status=FINISHED", headers={"X-Auth-Token": FD_TOKEN}, timeout=10)
         if r.status_code == 200:
@@ -73,16 +73,14 @@ def get_data(codes):
                     ftr = "H" if hg > ag else ("A" if ag > hg else "D")
                     rows.append({"HomeTeam": m["homeTeam"].get("shortName") or m["homeTeam"]["name"], "AwayTeam": m["awayTeam"].get("shortName") or m["awayTeam"]["name"], "FTHG": int(hg), "FTAG": int(ag), "FTR": ftr})
             if rows: return pd.DataFrame(rows), ""
-        else:
-            err_msg = f"Code API {r.status_code}"
-    except Exception as e:
-        err_msg = str(e)
+        else: err = f"Code {r.status_code}"
+    except Exception as e: err = str(e)
     if os.path.exists(f"{csv_code}.csv"):
         try:
             df = pd.read_csv(f"{csv_code}.csv")
             if {'HomeTeam', 'AwayTeam', 'FTR'}.issubset(df.columns): return df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']), ""
         except Exception: pass
-    return pd.DataFrame(), err_msg
+    return pd.DataFrame(), err
 
 def calc_v2(df, eq1, eq2):
     def st_t(t):
@@ -156,4 +154,5 @@ with tab_suivi:
     if not user_data["paris"]: st.info("Aucun pari validé.")
     else:
         for i, p in enumerate(user_data["paris"]):
-            
+            c_i, c_s = st.columns(2)
+                 
