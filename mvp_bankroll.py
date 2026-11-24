@@ -1,26 +1,11 @@
 import streamlit as st
 import pandas as pd
-import requests, io, json, os, urllib3
+import io
 from datetime import datetime
+from moteur import CHAMPIONNATS, load_db, save_db, get_cap, fetch_matches, calc_v2
 
-urllib3.disable_warnings()
 st.set_page_config(page_title="SmartStake Foot", page_icon="⚽", layout="centered")
 st.markdown("""<style>.hero{background:linear-gradient(135deg,#064e3b,#15803d);padding:16px;border-radius:14px;color:white;margin-bottom:10px;border:1px solid #22c55e}.hero h1{margin:0;font-size:1.6rem;color:#fff}.hero p{margin:4px 0 0;font-size:.9rem;color:#dcfce7}.stButton>button[kind="primary"]{background-color:#16a34a;border-color:#16a34a;color:white;font-weight:700;border-radius:10px;height:3em}</style>""", unsafe_allow_html=True)
-
-FD_TOKEN = "d2193c7f2b1e47458dbed1b4e8c10732"
-DB_FILE = "smartstake_users.json"
-
-def load_db():
-    try:
-        if os.path.exists(DB_FILE):
-            with open(DB_FILE, "r", encoding="utf-8") as f: return json.load(f)
-    except Exception: pass
-    return {}
-
-def save_db(data):
-    try:
-        with open(DB_FILE, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception: pass
 
 if "db" not in st.session_state: st.session_state.db = load_db()
 db = st.session_state.db
@@ -40,72 +25,17 @@ with st.expander("👤 Mon Espace Parieur", expanded=False):
 
 if st.session_state.user_id not in db: db[st.session_state.user_id] = {"capital_depart": 20.0, "paris": [], "is_pro": False}
 user_data = db[st.session_state.user_id]
-
-def get_cap(u):
-    cap = float(u.get("capital_depart", 20.0))
-    for p in u.get("paris", []):
-        if p.get("Statut") == "✅ Gagné": cap += float(p.get("Gain Visé (€)", 0))
-        elif p.get("Statut") == "❌ Perdu": cap -= float(p.get("Mise (€)", 0))
-    return round(cap, 2)
-
 capital_actuel = get_cap(user_data)
-tab_calc, tab_suivi, tab_tuto, tab_pro = st.tabs(["⚽ Analyse Match", "💰 Ma Bankroll", "📘 Tutoriel", "🏆 Offre Pro"])
-
-CHAMPIONNATS = {
-    "🇫🇷 Ligue 1": ("FL1", "F1"), "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": ("PL", "E0"),
-    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship": ("ELC", "E1"), "🇪🇸 La Liga": ("PD", "SP1"),
-    "🇮🇹 Serie A": ("SA", "I1"), "🇩🇪 Bundesliga": ("BL1", "D1"),
-    "🇵🇹 Primeira Liga": ("PPL", "P1"), "🇳🇱 Eredivisie": ("DED", "N1"),
-    "🇧🇷 Brasileirão": ("BSA", "BSA"), "🇪🇺 Ligue des Champions": ("CL", "CL")
-}
 
 @st.cache_data(ttl=3600, show_spinner="Chargement des matchs officiels...")
-def get_data(codes):
-    fd_code, csv_code = codes
-    if os.path.exists(f"{csv_code}.csv"):
-        try:
-            df = pd.read_csv(f"{csv_code}.csv")
-            if {'HomeTeam', 'AwayTeam', 'FTR'}.issubset(df.columns): return df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']), ""
-        except Exception: pass
-    try:
-        url = "/".join(["https://football-data.org", "v4", "competitions", fd_code, "matches?status=FINISHED"])
-        r = requests.get(url, headers={"X-Auth-Token": FD_TOKEN}, timeout=25, verify=False)
-        if r.status_code == 200:
-            rows = []
-            for m in r.json().get("matches", []):
-                ft = m.get("score", {}).get("fullTime", {})
-                hg, ag = ft.get("home"), ft.get("away")
-                if hg is not None and ag is not None:
-                    ftr = "H" if hg > ag else ("A" if ag > hg else "D")
-                    rows.append({"HomeTeam": m["homeTeam"].get("shortName") or m["homeTeam"]["name"], "AwayTeam": m["awayTeam"].get("shortName") or m["awayTeam"]["name"], "FTHG": int(hg), "FTAG": int(ag), "FTR": ftr})
-            if rows: return pd.DataFrame(rows), ""
-        return pd.DataFrame(), f"HTTP {r.status_code}"
-    except Exception as e:
-        return pd.DataFrame(), str(e)
-        def calc_v2(df, eq1, eq2):
-    def st_t(t):
-        g = df[(df['HomeTeam'] == t) | (df['AwayTeam'] == t)].tail(6)
-        v = len(g[((g['HomeTeam'] == t) & (g['FTR'] == 'H')) | ((g['AwayTeam'] == t) & (g['FTR'] == 'A'))])
-        n = len(g[g['FTR'] == 'D']); d = len(g) - v - n; dom = 0.0; bp, bc = [], []
-        for _, r in g.iterrows():
-            is_h = (r['HomeTeam'] == t)
-            if {'FTHG', 'FTAG'}.issubset(g.columns) and pd.notna(r['FTHG']) and pd.notna(r['FTAG']):
-                hg, ag = float(r['FTHG']), float(r['FTAG'])
-                dom += (hg - ag) * (0.15 if is_h else -0.15); bp.append(hg if is_h else ag); bc.append(ag if is_h else hg)
-            if {'HST', 'AST'}.issubset(g.columns) and pd.notna(r['HST']) and pd.notna(r['AST']):
-                dom += (float(r['HST']) - float(r['AST'])) * (0.04 if is_h else -0.04)
-        return v, n, d, dom, (sum(bp)/len(bp) if bp else 1.2), (sum(bc)/len(bc) if bc else 1.2)
-    def sl(t, h=True):
-        s = df[df['HomeTeam'] == t].tail(3) if h else df[df['AwayTeam'] == t].tail(3)
-        v = len(s[s['FTR'] == ('H' if h else 'A')]); n = len(s[s['FTR'] == 'D'])
-        return v, n, len(s) - v - n
-    g1v, g1n, g1d, dom1, bp1, bc1 = st_t(eq1); g2v, g2n, g2d, dom2, bp2, bc2 = st_t(eq2)
-    hv, hn, hd = sl(eq1, True); av, an, ad = sl(eq2, False)
-    return max(0.1, (g1v + g2d) - (hv + ad) + (dom1 - dom2)), max(0.1, (g1n + g2n) - (hn + an)), max(0.1, (g1d + g2v) - (hd + av) + (dom2 - dom1)), f"{round((bp1 + bc2)/2)} - {round((bp2 + bc1)/2)}"
+def get_cached_matches(codes):
+    return fetch_matches(codes)
+
+tab_calc, tab_suivi, tab_tuto, tab_pro = st.tabs(["⚽ Analyse Match", "💰 Ma Bankroll", "📘 Tutoriel", "🏆 Offre Pro"])
 
 with tab_calc:
     ligue = st.selectbox("🏟️ Compétition (Temps Réel)", list(CHAMPIONNATS.keys()))
-    df, err = get_data(CHAMPIONNATS[ligue])
+    df, err = get_cached_matches(CHAMPIONNATS[ligue])
     if df.empty: st.warning(f"⚠️ Flux indisponible ({err}).")
     else:
         st.caption(f"✅ Flux officiel actif : **{len(df)} matchs terminés**.")
@@ -177,5 +107,5 @@ with tab_pro:
     if st.button("🚀 Activer Pro", type="primary", use_container_width=True) and "@" in mail:
         st.session_state.is_pro = True; user_data["is_pro"] = True; db[st.session_state.user_id] = user_data; save_db(db); st.success("🎉 Pro activé !")
 
-st.caption("SmartStake Football v5.1")
+st.caption("SmartStake Football v6.0 — Modulaire")
             
