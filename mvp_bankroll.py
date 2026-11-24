@@ -46,9 +46,10 @@ with tab_calc:
         eq1 = col1.selectbox("🏠 Domicile", eqs, index=0)
         eq2 = col2.selectbox("✈️ Extérieur", eqs, index=1 if len(eqs) > 1 else 0)
         issue = st.radio("🎯 Pronostic 1N2", ["🏠 Équipe 1", "🤝 Match Nul", "✈️ Équipe 2"], index=2, horizontal=True)
-        r1, r2 = st.columns(2)
+        r1, r2, r3 = st.columns(3)
         cap_input = r1.number_input("💰 Bankroll (€)", min_value=1.0, value=capital_actuel, step=1.0)
-        risque_pct = r2.select_slider("🎚️ Risque 1N2 (%)", options=[2.5, 5.0, 7.5, 10.0], value=5.0)
+        risque_pct = r2.select_slider("🎚️ Risque (%)", options=[2.5, 5.0, 7.5, 10.0], value=5.0)
+        marge_val = r3.slider("🛡️ Sécurité (%)", 0, 20, 8, step=2)
         q1, q2, q3 = st.columns(3)
         c1 = q1.number_input("Cote 1", min_value=1.05, value=2.20, step=0.05)
         cn = q2.number_input("Cote N", min_value=1.50, value=3.30, step=0.05)
@@ -64,18 +65,20 @@ with tab_calc:
                 if issue == "🏠 Équipe 1": ct, cr, cmin, cmax, lbl = ((1 + t3d/t3v) if dnb else tot/t3v), ((c1*(cn-1)/cn) if dnb else c1), (1.90 if dnb else 2.00), (3.50 if dnb else 5.00), f"{eq1} ({'DNB' if dnb else '1'})"
                 elif issue == "🤝 Match Nul": ct, cr, cmin, cmax, lbl = tot/t3n, cn, 2.50, 4.50, "Match Nul"
                 else: ct, cr, cmin, cmax, lbl = ((1 + t3v/t3d) if dnb else tot/t3d), ((c2*(cn-1)/cn) if dnb else c2), (1.90 if dnb else 2.00), (3.50 if dnb else 5.00), f"{eq2} ({'DNB' if dnb else '2'})"
-                ok = (cr > ct) and (cmin <= cr <= cmax)
+                ct_sec = ct * (1.0 + marge_val / 100.0)
+                ok = (cr > ct_sec) and (cmin <= cr <= cmax)
                 obj = (cap_input * (risque_pct / 100.0)) * (cr / 2.0) if ok else 0.0
                 mise = obj / (cr - 1.0) if (ok and cr > 1) else 0.0
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Cote Juste V2", f"{ct:.2f}"); m2.metric("Cote Jouée", f"{cr:.2f}"); m3.metric("Mise 1N2", f"{mise:.2f} €")
+                m1.metric(f"Seuil (+{marge_val}%)", f"{ct_sec:.2f}"); m2.metric("Cote Jouée", f"{cr:.2f}"); m3.metric("Mise 1N2", f"{mise:.2f} €")
                 st.info(f"🔮 **Score Exact tendance :** {eq1} **{round(l1)} - {round(l2)}** {eq2}")
                 if ok:
-                    conf = "🔥 Confiance Élevée" if (cr / ct) >= 1.12 else "⚖️ Confiance Modérée"
+                    conf = "🔥 Confiance Élevée" if (cr / ct_sec) >= 1.08 else "⚖️ Confiance Modérée"
                     st.success(f"✅ **VALUE BET ({conf}) — PARIER {mise:.2f} €** sur **{lbl}** (Gain : **+{obj:.2f} €**)")
+                    st.caption("📋 *Check-list rapide : vérifie les blessés/compos 1h avant le match.*")
                     user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Code": fd_code, "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2), "Statut": "⏳ En cours"})
                     db[st.session_state.user_id] = user_data; save_db(db)
-                else: st.warning(f"⏸️ **NO BET (PASSER)** — Cote {cr:.2f} vs Juste {ct:.2f}")
+                else: st.warning(f"⏸️ **NO BET (PASSER)** — Cote {cr:.2f} vs Seuil {ct_sec:.2f}")
 
         with st.expander("🎯 Calculateur de Mise — Score Exact (Loi de Poisson)", expanded=False):
             _, _, _, l1, l2 = calc_v2(df, eq1, eq2)
@@ -118,4 +121,5 @@ with tab_bt: render_backtest()
 with tab_tuto: render_guide()
 with tab_pro: render_pro(db, user_data)
 
-st.caption("SmartStake Football v7.4 — Architecture Modulaire")
+st.caption("SmartStake Football v7.5 — Version Finale")
+    
