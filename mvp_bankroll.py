@@ -33,7 +33,7 @@ for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
     if k not in st.session_state: st.session_state[k] = v
 
 badge = "PRO ✨" if st.session_state.is_pro else f"Essai gratuit : {max(0, 3 - st.session_state.analyses_count)}/3"
-st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>Championnats Auto • Algorithme V2 • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>12 Championnats Auto • Algorithme V2 • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
 st.caption("⚖️ Outil statistique d'aide à la décision (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
 
 with st.expander("👤 Mon Espace Parieur (Sauvegarde Bankroll)", expanded=False):
@@ -57,9 +57,12 @@ capital_actuel = get_cap(user_data)
 tab_calc, tab_suivi, tab_tuto, tab_pro = st.tabs(["⚽ Analyse Match", "💰 Ma Bankroll", "📘 Tutoriel", "🏆 Offre Pro"])
 
 CHAMPIONNATS = {
-    "🇫🇷 Ligue 1": "F1", "🇫🇷 Ligue 2": "F2", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": "E0", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship": "E1",
-    "🇪🇸 La Liga": "SP1", "🇮🇹 Serie A": "I1", "🇮🇹 Serie B": "I2", "🇩🇪 Bundesliga": "D1",
-    "🇵🇹 Liga Portugal": "P1", "🇳🇱 Eredivisie": "N1", "🇧🇪 Pro League": "B1", "🇬🇷 Super League": "G1"
+    "🇫🇷 Ligue 1": ("F1", "fr.1"), "🇫🇷 Ligue 2": ("F2", "fr.2"),
+    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": ("E0", "en.1"), "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship": ("E1", "en.2"),
+    "🇪🇸 La Liga": ("SP1", "es.1"), "🇮🇹 Serie A": ("I1", "it.1"),
+    "🇮🇹 Serie B": ("I2", "it.2"), "🇩🇪 Bundesliga": ("D1", "de.1"),
+    "🇵🇹 Liga Portugal": ("P1", "pt.1"), "🇳🇱 Eredivisie": ("N1", "nl.1"),
+    "🇧🇪 Pro League": ("B1", "be.1"), "🇬🇷 Super League": ("G1", "gr.1")
 }
 
 def read_clean_csv(source):
@@ -70,23 +73,31 @@ def read_clean_csv(source):
         except Exception: continue
     return pd.DataFrame()
 
-def get_data(code):
-    sources = [
-        f"data/{code}.csv",
-        f"https://githubusercontent.com{code}.csv",
-        f"https://football-data.co.uk{code}.csv"
-    ]
-    for src in sources:
-        if src.startswith("data/") and not os.path.exists(src): continue
-        try:
-            if src.startswith("http"):
-                r = requests.get(src, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
-                if r.status_code != 200 or "<html" in r.text.lower()[:200]: continue
-                df = read_clean_csv(io.StringIO(r.text))
-            else:
-                df = read_clean_csv(src)
+@st.cache_data(ttl=1800)
+def get_data(codes):
+    code, of_code = codes
+    for path in [f"{code}.csv", f"data/{code}.csv"]:
+        if os.path.exists(path):
+            df = read_clean_csv(path)
             if not df.empty: return df
-        except Exception: continue
+    try:
+        hdr = {"User-Agent": "Mozilla/5.0", "Referer": "https://football-data.co.uk"}
+        r = requests.get(f"https://football-data.co.uk{code}.csv", headers=hdr, timeout=6)
+        if r.status_code == 200 and "<html" not in r.text.lower()[:200]:
+            df = read_clean_csv(io.StringIO(r.text))
+            if not df.empty: return df
+    except Exception: pass
+    try:
+        r = requests.get(f"https://githubusercontent.com{of_code}.json", timeout=8)
+        if r.status_code == 200:
+            rows = []
+            for m in r.json().get("matches", []):
+                ft = m.get("score", {}).get("ft")
+                if isinstance(ft, list) and len(ft) == 2:
+                    ftr = "H" if ft[0] > ft[1] else ("A" if ft[1] > ft[0] else "D")
+                    rows.append({"HomeTeam": m["team1"], "AwayTeam": m["team2"], "FTHG": ft[0], "FTAG": ft[1], "FTR": ftr})
+            if rows: return pd.DataFrame(rows)
+    except Exception: pass
     return pd.DataFrame()
 
 def calc_v2_and_score(df, eq1, eq2):
@@ -117,11 +128,11 @@ def calc_v2_and_score(df, eq1, eq2):
     return t3_1, t3_n, t3_2, f"{round((bp1 + bc2) / 2.0)} - {round((bp2 + bc1) / 2.0)}"
 
 with tab_calc:
-    ligue = st.selectbox("🏟️ Championnat (Données mises à jour automatiquement)", list(CHAMPIONNATS.keys()))
+    ligue = st.selectbox("🏟️ Championnat (Synchronisation Auto)", list(CHAMPIONNATS.keys()))
     df = get_data(CHAMPIONNATS[ligue])
-    if df.empty: st.warning("⚠️ Données indisponibles pour ce championnat sur la source officielle. Choisis une autre ligue.")
+    if df.empty: st.warning("⚠️ Base momentanément indisponible pour cette ligue.")
     else:
-        st.caption(f"✅ Base à jour : **{len(df)} matchs** analysés automatiquement.")
+        st.caption(f"✅ Base active : **{len(df)} matchs** synchronisés automatiquement.")
         eqs = sorted(df['HomeTeam'].unique().tolist())
         col1, col2 = st.columns(2)
         eq1 = col1.selectbox("🏠 Équipe Domicile", eqs, index=0)
@@ -160,11 +171,4 @@ with tab_calc:
                     conf = "🔥 Confiance Élevée" if (cr / ct) >= 1.12 else "⚖️ Confiance Modérée"
                     st.success(f"✅ **VALUE BET ({conf}) — PARIER {mise:.2f} €** sur **{lbl}** (Gain net : **+{obj:.2f} €**)")
                     user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2), "Statut": "⏳ En cours"})
-                    db[st.session_state.user_id] = user_data; save_db(db)
-                else: st.warning(f"⏸️ **NO BET (PASSER)** — Cote {cr:.2f} vs Cote Juste {ct:.2f}")
-
-with tab_suivi:
-    st.subheader(f"💰 Bankroll de {st.session_state.user_id}")
-    b1, b2 = st.columns(2)
-    nouv_dep = b1.number_input("Capital de départ (€)", min_value=1.0, value=float(user_data.get("capital_depart", 20.0)), step=5.0)
                     
