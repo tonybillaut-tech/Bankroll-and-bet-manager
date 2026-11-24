@@ -1,25 +1,49 @@
 import streamlit as st
 import pandas as pd
-from moteur import CHAMPIONNATS, run_financial_backtest
+from moteur import CHAMPIONNATS, fetch_matches, calc_v2
 
 def render_backtest():
-    st.subheader("📊 Backtest Financier (Cotes Bet365)")
+    st.subheader("📊 Backtest & Audit de l'Algorithme V2")
+    ligue = st.selectbox("🏟️ Choisir le championnat à auditer", list(CHAMPIONNATS.keys()))
     c1, c2 = st.columns(2)
-    saison = c1.selectbox("📅 Saison", ["2425", "2526"], format_func=lambda x: "2024/2025 (Complète)" if x == "2425" else "2025/2026 (En cours)")
+    cap_init = c1.number_input("💰 Capital départ (€)", 10.0, 10000.0, 100.0, step=10.0)
     dnb = c2.toggle("🛡️ Simuler avec DNB", value=True)
-    if st.button("🚀 Lancer le Backtest (100 € / ligue)", type="primary", use_container_width=True):
-        res = []
-        bar = st.progress(0)
-        eu = [(k, v[1]) for k, v in CHAMPIONNATS.items() if v[1] not in ("BSA", "CL")]
-        for i, (nom, code) in enumerate(eu):
-            r = run_financial_backtest(code, saison=saison, cap_init=100.0, risque=5.0, use_dnb=dnb)
-            if r: res.append({"Compétition": nom, **r})
-            bar.progress((i + 1) / len(eu))
-        if res:
-            df_bt = pd.DataFrame(res)
-            st.dataframe(df_bt, use_container_width=True, hide_index=True)
-            gain = df_bt["Finale (€)"].sum() - (100.0 * len(df_bt))
-            st.success(f"💰 **{df_bt['Paris'].sum()} paris :** Profit **{gain:+.2f} €** | ROI **{df_bt['ROI (%)'].mean():+.1f}%** | Réussite **{df_bt['Réussite (%)'].mean():.1f}%**")
+    csv_up = st.file_uploader("📂 Optionnel : Importer un CSV Bet365 (ex. F1.csv)", type=["csv"])
+
+    if st.button("🚀 Lancer la simulation sur toute la saison", type="primary", use_container_width=True):
+        if csv_up:
+            df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True)
         else:
-            st.warning("⚠️ Dossier historique/ vide ou introuvable.")
-            
+            df, _ = fetch_matches(CHAMPIONNATS[ligue])
+            df = df.reset_index(drop=True)
+        if len(df) < 35:
+            st.warning("Pas assez de matchs terminés sur cette compétition.")
+            return
+        cap, mise_tot, paris, gagnes, hist_cap = cap_init, 0.0, 0, 0, [cap_init]
+        has_odds = {'B365H', 'B365D', 'B365A'}.issubset(df.columns)
+        for i in range(30, len(df)):
+            row = df.iloc[i]
+            t3v, t3n, t3d, _, _ = calc_v2(df.iloc[:i], row["HomeTeam"], row["AwayTeam"])
+            tot = max(1.0, t3v + t3n + t3d)
+            c1_o = float(row["B365H"]) if has_odds else 2.25
+            cn_o = float(row["B365D"]) if has_odds else 3.30
+            c2_o = float(row["B365A"]) if has_odds else 3.10
+            cands = [("H", (1 + t3d/t3v) if dnb else tot/t3v, (c1_o*(cn_o-1)/cn_o) if dnb else c1_o),
+                     ("A", (1 + t3v/t3d) if dnb else tot/t3d, (c2_o*(cn_o-1)/cn_o) if dnb else c2_o)]
+            cmin, cmax = (1.90, 3.50) if dnb else (2.00, 5.00)
+            for side, ct, cr in cands:
+                if cr > ct and cmin <= cr <= cmax and cap > 1.0:
+                    mise = min(cap, ((cap * 0.05) * (cr / 2.0)) / (cr - 1.0))
+                    paris += 1; mise_tot += mise
+                    if row["FTR"] == side: cap += mise * (cr - 1.0); gagnes += 1
+                    elif dnb and row["FTR"] == "D": gagnes += 1
+                    else: cap -= mise
+                    hist_cap.append(round(cap, 2))
+                    break
+        roi = round(((cap - cap_init) / max(1.0, mise_tot)) * 100, 1)
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Paris joués", f"{paris} / {len(df)-30}")
+        m2.metric("Taux réussite", f"{round(gagnes*100/max(1, paris), 1)} %")
+        m3.metric("Bankroll Finale", f"{cap:.2f} €", delta=f"{roi:+.1f}% ROI")
+        st.line_chart(hist_cap)
+        
