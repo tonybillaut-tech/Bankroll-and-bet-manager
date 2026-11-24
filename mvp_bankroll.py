@@ -33,7 +33,7 @@ for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
     if k not in st.session_state: st.session_state[k] = v
 
 badge = "PRO ✨" if st.session_state.is_pro else f"Essai gratuit : {max(0, 3 - st.session_state.analyses_count)}/3"
-st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>11 Championnats Auto • Algorithme V2 • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>14 Championnats Auto • Algorithme V2 • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
 st.caption("⚖️ Outil statistique d'aide à la décision (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
 
 with st.expander("👤 Mon Espace Parieur (Sauvegarde Bankroll)", expanded=False):
@@ -58,8 +58,9 @@ tab_calc, tab_suivi, tab_tuto, tab_pro = st.tabs(["⚽ Analyse Match", "💰 Ma 
 
 CHAMPIONNATS = {
     "🇫🇷 Ligue 1": "F1", "🇫🇷 Ligue 2": "F2", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": "E0", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship": "E1",
-    "🇪🇸 La Liga": "SP1", "🇮🇹 Serie A": "I1", "🇩🇪 Bundesliga": "D1", "🇵🇹 Liga Portugal": "P1",
-    "🇳🇱 Eredivisie": "N1", "🇧🇪 Pro League": "B1", "🇬🇷 Super League": "G1"
+    "🇪🇸 La Liga": "SP1", "🇪🇸 La Liga 2": "SP2", "🇮🇹 Serie A": "I1", "🇮🇹 Serie B": "I2",
+    "🇩🇪 Bundesliga": "D1", "🇩🇪 2. Bundesliga": "D2", "🇵🇹 Liga Portugal": "P1", "🇳🇱 Eredivisie": "N1",
+    "🇧🇪 Pro League": "B1", "🇬🇷 Super League": "G1"
 }
 
 def read_clean_csv(source):
@@ -165,5 +166,3 @@ with tab_suivi:
     else:
         for i, p in enumerate(user_data["paris"]):
             col_info, col_stat = st.columns(2)
-            col_info.write(f"⚽ **{p['Match']}** — {p['Choix']} (@{p['Cote']}) | {p['Mise (€)']}€")
-        
