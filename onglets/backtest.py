@@ -21,5 +21,5 @@ def render_backtest():
             gain = df_bt["Finale (€)"].sum() - (100.0 * len(df_bt))
             st.success(f"💰 **{df_bt['Paris'].sum()} paris :** Profit **{gain:+.2f} €** | ROI **{df_bt['ROI (%)'].mean():+.1f}%** | Réussite **{df_bt['Réussite (%)'].mean():.1f}%**")
         else:
-            st.warning("⚠️ Archives historiques bloquées par le pare-feu serveur.")
-          
+            st.warning("⚠️ Dossier historique/ vide ou introuvable.")
+            
