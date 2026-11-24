@@ -82,8 +82,7 @@ def get_data(codes):
         return pd.DataFrame(), f"HTTP {r.status_code}"
     except Exception as e:
         return pd.DataFrame(), str(e)
-
-def calc_v2(df, eq1, eq2):
+        def calc_v2(df, eq1, eq2):
     def st_t(t):
         g = df[(df['HomeTeam'] == t) | (df['AwayTeam'] == t)].tail(6)
         v = len(g[((g['HomeTeam'] == t) & (g['FTR'] == 'H')) | ((g['AwayTeam'] == t) & (g['FTR'] == 'A'))])
@@ -153,4 +152,30 @@ with tab_suivi:
     if nouv_dep != user_data.get("capital_depart", 20.0): user_data["capital_depart"] = nouv_dep; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
     b2.metric("Actuel", f"{capital_actuel:.2f} €", delta=f"{capital_actuel - nouv_dep:+.2f} €")
     if not user_data["paris"]: st.info("Aucun pari validé.")
-                    else:
+    else:
+        for i, p in enumerate(user_data["paris"]):
+            c_i, c_s = st.columns(2)
+            c_i.write(f"⚽ **{p['Match']}** — {p['Choix']} (@{p['Cote']}) | {p['Mise (€)']}€")
+            opts = ["⏳ En cours", "✅ Gagné", "🔄 Remboursé", "❌ Perdu"]
+            ns = c_s.selectbox("Statut", opts, index=opts.index(p.get("Statut", "⏳ En cours")), key=f"st_{i}", label_visibility="collapsed")
+            if ns != p.get("Statut"): user_data["paris"][i]["Statut"] = ns; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
+        buf = io.BytesIO(); pd.DataFrame(user_data["paris"]).to_excel(buf, index=False)
+        st.download_button("📥 Exporter Excel", buf.getvalue(), f"smartstake_{st.session_state.user_id}.xlsx", use_container_width=True)
+
+with tab_tuto:
+    st.subheader("📘 Guide SmartStake")
+    st.write("**1. Profil :** Ouvre *👤 Mon Espace Parieur* et tape ton pseudo ou e-mail.")
+    st.write("**2. Temps réel :** Choisis parmi les 10 compétitions officielles mises à jour en direct.")
+    st.write("**3. Analyse V2 :** Sélectionne les équipes, ton pronostic et les 3 cotes (forme + lieu + buts).")
+    st.write("**4. DNB & Risque :** Garde *Remboursé si nul* actif ; le pari passe au vert si *Cote Jouée > Cote Juste V2*.")
+    st.write("**5. Bankroll :** Change le statut de tes paris dans *💰 Ma Bankroll* pour actualiser ton capital.")
+
+with tab_pro:
+    st.subheader("🏆 SmartStake Pro — 29,90 €/an")
+    st.write("✅ **Analyses illimitées** sur les 10 compétitions en direct + Algo V2 + Score exact + DNB.")
+    mail = st.text_input("Ton e-mail :")
+    if st.button("🚀 Activer Pro", type="primary", use_container_width=True) and "@" in mail:
+        st.session_state.is_pro = True; user_data["is_pro"] = True; db[st.session_state.user_id] = user_data; save_db(db); st.success("🎉 Pro activé !")
+
+st.caption("SmartStake Football v5.1")
+            
