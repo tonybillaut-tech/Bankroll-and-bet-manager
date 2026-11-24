@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import datetime
-from moteur import CHAMPIONNATS, load_db, save_db, get_cap, fetch_matches, calc_v2, poisson_score
+from moteur import CHAMPIONNATS, load_db, save_db, get_cap, fetch_matches, calc_v2, poisson_score, check_results
 
 st.set_page_config(page_title="SmartStake Foot", page_icon="⚽", layout="centered")
 st.markdown("""<style>.hero{background:linear-gradient(135deg,#064e3b,#15803d);padding:16px;border-radius:14px;color:white;margin-bottom:10px;border:1px solid #22c55e}.hero h1{margin:0;font-size:1.6rem;color:#fff}.hero p{margin:4px 0 0;font-size:.9rem;color:#dcfce7}.stButton>button[kind="primary"]{background-color:#16a34a;border-color:#16a34a;color:white;font-weight:700;border-radius:10px;height:3em}</style>""", unsafe_allow_html=True)
@@ -35,6 +35,7 @@ tab_calc, tab_suivi, tab_tuto, tab_pro = st.tabs(["⚽ Analyse Match", "💰 Ma 
 
 with tab_calc:
     ligue = st.selectbox("🏟️ Compétition (Temps Réel)", list(CHAMPIONNATS.keys()))
+    fd_code = CHAMPIONNATS[ligue][0]
     df, err = get_cached_matches(CHAMPIONNATS[ligue])
     if df.empty: st.warning(f"⚠️ Flux indisponible ({err}).")
     else:
@@ -71,7 +72,7 @@ with tab_calc:
                 if ok:
                     conf = "🔥 Confiance Élevée" if (cr / ct) >= 1.12 else "⚖️ Confiance Modérée"
                     st.success(f"✅ **VALUE BET ({conf}) — PARIER {mise:.2f} €** sur **{lbl}** (Gain : **+{obj:.2f} €**)")
-                    user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2), "Statut": "⏳ En cours"})
+                    user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Code": fd_code, "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2), "Statut": "⏳ En cours"})
                     db[st.session_state.user_id] = user_data; save_db(db)
                 else: st.warning(f"⏸️ **NO BET (PASSER)** — Cote {cr:.2f} vs Juste {ct:.2f}")
 
@@ -88,7 +89,7 @@ with tab_calc:
             if c_sc > ct_sc: st.success(f"✅ **Value Score Exact ({g1}-{g2})** — Mise conseillée : **{mise_sc:.2f} €**")
             else: st.caption(f"⏸️ Cote bookmaker ({c_sc:.2f}) sous la cote juste Poisson ({ct_sc:.2f}) — Micro-mise fun : {mise_sc:.2f} € max.")
             if st.button("➕ Enregistrer ce Score Exact dans ma Bankroll", use_container_width=True):
-                user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Match": f"{eq1}-{eq2}", "Choix": f"Score {g1}-{g2}", "Cote": round(c_sc, 2), "Mise (€)": mise_sc, "Gain Visé (€)": round(mise_sc * (c_sc - 1), 2), "Statut": "⏳ En cours"})
+                user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Code": fd_code, "Match": f"{eq1}-{eq2}", "Choix": f"Score {g1}-{g2}", "Cote": round(c_sc, 2), "Mise (€)": mise_sc, "Gain Visé (€)": round(mise_sc * (c_sc - 1), 2), "Statut": "⏳ En cours"})
                 db[st.session_state.user_id] = user_data; save_db(db); st.success("✅ Pari Score Exact ajouté !")
 
 with tab_suivi:
@@ -97,6 +98,10 @@ with tab_suivi:
     nouv_dep = b1.number_input("Départ (€)", min_value=1.0, value=float(user_data.get("capital_depart", 20.0)), step=5.0)
     if nouv_dep != user_data.get("capital_depart", 20.0): user_data["capital_depart"] = nouv_dep; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
     b2.metric("Actuel", f"{capital_actuel:.2f} €", delta=f"{capital_actuel - nouv_dep:+.2f} €")
+    if st.button("🔄 Vérifier automatiquement les matchs terminés", use_container_width=True):
+        nb = check_results(user_data["paris"])
+        if nb > 0: db[st.session_state.user_id] = user_data; save_db(db); st.success(f"✅ {nb} pari(s) mis à jour !"); st.rerun()
+        else: st.info("Aucun match terminé trouvé pour vos paris en cours.")
     if not user_data["paris"]: st.info("Aucun pari validé.")
     else:
         for i, p in enumerate(user_data["paris"]):
@@ -112,15 +117,12 @@ with tab_tuto:
     st.subheader("📘 Guide SmartStake")
     st.write("**1. Profil :** Ouvre *👤 Mon Espace Parieur* et tape ton pseudo ou e-mail.")
     st.write("**2. Temps réel :** Choisis parmi les 10 compétitions officielles mises à jour en direct.")
-    st.write("**3. Analyse 1N2 & Score Exact :** Teste le 1N2 classique ou déplie *🎯 Calculateur de Mise — Score Exact* (loi de Poisson, mise plafonnée à 2,5 %).")
-    st.write("**4. Bankroll :** Change le statut de tes paris dans *💰 Ma Bankroll* pour actualiser ton capital.")
+    st.write("**3. Analyse 1N2 & Score Exact :** Teste le 1N2 ou déplie *🎯 Calculateur de Mise — Score Exact* (loi de Poisson).")
+    st.write("**4. Bankroll Auto :** Appuie sur *🔄 Vérifier automatiquement les matchs terminés* dans *💰 Ma Bankroll* pour actualiser tes gains.")
 
 with tab_pro:
     st.subheader("🏆 SmartStake Pro — 29,90 €/an")
-    st.write("✅ **Analyses illimitées** sur les 10 compétitions en direct + Algo V2 + Score exact Poisson + DNB.")
+    st.write("✅ **Analyses illimitées** sur les 10 compétitions en direct + Algo V2 + Score exact Poisson + Vérification auto.")
     mail = st.text_input("Ton e-mail :")
     if st.button("🚀 Activer Pro", type="primary", use_container_width=True) and "@" in mail:
-        st.session_state.is_pro = True; user_data["is_pro"] = True; db[st.session_state.user_id] = user_data; save_db(db); st.success("🎉 Pro activé !")
-
-st.caption("SmartStake Football v6.1 — Poisson & Live")
-        
+                
