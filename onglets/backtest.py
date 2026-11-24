@@ -3,14 +3,15 @@ import pandas as pd
 from moteur import CHAMPIONNATS, fetch_matches, calc_v2
 
 def render_backtest():
-    st.subheader("📊 Backtest & Audit de l'Algorithme V2")
-    ligue = st.selectbox("🏟️ Choisir le championnat à auditer", list(CHAMPIONNATS.keys()))
+    st.subheader("📊 Backtest & Optimisation Value")
+    ligue = st.selectbox("🏟️ Championnat à auditer", list(CHAMPIONNATS.keys()))
     c1, c2 = st.columns(2)
     cap_init = c1.number_input("💰 Capital départ (€)", 10.0, 10000.0, 100.0, step=10.0)
-    dnb = c2.toggle("🛡️ Simuler avec DNB", value=True)
-    csv_up = st.file_uploader("📂 Optionnel : Importer un CSV Bet365 (ex. F1.csv)", type=["csv"])
+    marge_pct = c2.slider("🛡️ Marge sécurité Value (%)", 0, 25, 8, step=2)
+    dnb = st.toggle("🔄 Simuler avec DNB (Remboursé si nul)", value=True)
+    csv_up = st.file_uploader("📂 Importer un CSV Bet365 (ex. F1.csv)", type=["csv"])
 
-    if st.button("🚀 Lancer la simulation sur toute la saison", type="primary", use_container_width=True):
+    if st.button("🚀 Lancer la simulation", type="primary", use_container_width=True):
         if csv_up:
             df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True)
         else:
@@ -21,6 +22,7 @@ def render_backtest():
             return
         cap, mise_tot, paris, gagnes, hist_cap = cap_init, 0.0, 0, 0, [cap_init]
         has_odds = {'B365H', 'B365D', 'B365A'}.issubset(df.columns)
+        mult = 1.0 + (marge_pct / 100.0)
         for i in range(30, len(df)):
             row = df.iloc[i]
             t3v, t3n, t3d, _, _ = calc_v2(df.iloc[:i], row["HomeTeam"], row["AwayTeam"])
@@ -32,7 +34,7 @@ def render_backtest():
                      ("A", (1 + t3v/t3d) if dnb else tot/t3d, (c2_o*(cn_o-1)/cn_o) if dnb else c2_o)]
             cmin, cmax = (1.90, 3.50) if dnb else (2.00, 5.00)
             for side, ct, cr in cands:
-                if cr > ct and cmin <= cr <= cmax and cap > 1.0:
+                if cr > (ct * mult) and cmin <= cr <= cmax and cap > 1.0:
                     mise = min(cap, ((cap * 0.05) * (cr / 2.0)) / (cr - 1.0))
                     paris += 1; mise_tot += mise
                     if row["FTR"] == side: cap += mise * (cr - 1.0); gagnes += 1
