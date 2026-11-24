@@ -14,7 +14,7 @@ def render_pro(db, user_data):
     st.subheader("🏆 SmartStake Pro — 29,90 €/an")
     st.write("✨ **Passe au niveau supérieur avec une méthode disciplinée :**")
     st.write("• **Analyses illimitées** sur les 10 plus grandes compétitions en direct\n• **Marge de sécurité Value** + calcul automatique **DNB**\n• **Calculateur Score Exact** (Loi de Poisson) plafonné à ≤ 2,5 %\n• **Audit comparatif** des 10 championnats + **Sauvegarde Cloud**")
-    st.link_button("💳 Payer 29,90 €/an via PayPal ou Carte", "https://paypal.com", type="primary", use_container_width=True)
+    st.link_button("💳 Payer 29,90 €/an via PayPal ou Carte", "https://paypal.me", type="primary", use_container_width=True)
     st.caption("Indique ton pseudo/e-mail en note PayPal pour recevoir ton **code d'activation VIP**.")
     code_saisi = st.text_input("🔑 Déjà réglé ? Entre ton code d'activation VIP :")
     vip_secret = st.secrets.get("VIP_CODE", "SMART2026")
