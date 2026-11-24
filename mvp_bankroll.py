@@ -27,18 +27,13 @@ def save_db(data):
         with open(DB_FILE, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception: pass
 
-db = load_db()
+if "db" not in st.session_state: st.session_state.db = load_db()
+db = st.session_state.db
 for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
     if k not in st.session_state: st.session_state[k] = v
 
 badge = "PRO ✨" if st.session_state.is_pro else f"Essai gratuit : {max(0, 3 - st.session_state.analyses_count)}/3"
-st.markdown(f"""
-<div class="hero">
-    <h1>⚽ SmartStake — Paris Sportifs Foot</h1>
-    <p>Algorithme V2 (Forme + Tirs cadrés & Buts) • Bankroll • <b>{badge}</b></p>
-</div>
-""", unsafe_allow_html=True)
-
+st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>Algorithme V2 (Forme + Tirs cadrés & Buts) • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
 st.caption("⚖️ Outil statistique d'aide à la décision (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
 
 with st.expander("👤 Mon Espace Parieur (Sauvegarde Bankroll)", expanded=False):
@@ -73,8 +68,7 @@ def read_clean_csv(source):
     for enc in ["utf-8", "latin-1", "cp1252"]:
         try:
             df = pd.read_csv(source, encoding=enc)
-            if {'HomeTeam', 'AwayTeam', 'FTR'}.issubset(df.columns):
-                return df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
+            if {'HomeTeam', 'AwayTeam', 'FTR'}.issubset(df.columns): return df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR'])
         except Exception: continue
     return pd.DataFrame()
 
@@ -89,36 +83,41 @@ def get_data(src):
         return read_clean_csv(io.StringIO(r.text))
     except Exception: return pd.DataFrame()
 
-# Algorithme V2 : Total 1 - Total 2 pondéré par Tirs cadrés (HST/AST) et Buts (FTHG/FTAG)
-def calc_v2(df, eq1, eq2):
+def calc_v2_and_score(df, eq1, eq2):
     def stats_team(t):
         g = df[(df['HomeTeam'] == t) | (df['AwayTeam'] == t)].tail(6)
         v = len(g[((g['HomeTeam'] == t) & (g['FTR'] == 'H')) | ((g['AwayTeam'] == t) & (g['FTR'] == 'A'))])
-        n = len(g[g['FTR'] == 'D'])
-        d = len(g) - v - n
-        # Indice domination offensive (buts + tirs cadrés)
-        dom = 0.0
+        n = len(g[g['FTR'] == 'D']); d = len(g) - v - n; dom = 0.0
+        bp, bc = [], []
         for _, r in g.iterrows():
             is_h = (r['HomeTeam'] == t)
             if {'FTHG', 'FTAG'}.issubset(g.columns) and pd.notna(r['FTHG']) and pd.notna(r['FTAG']):
-                dom += (float(r['FTHG']) - float(r['FTAG'])) * (0.15 if is_h else -0.15)
+                hg, ag = float(r['FTHG']), float(r['FTAG'])
+                dom += (hg - ag) * (0.15 if is_h else -0.15)
+                bp.append(hg if is_h else ag); bc.append(ag if is_h else hg)
             if {'HST', 'AST'}.issubset(g.columns) and pd.notna(r['HST']) and pd.notna(r['AST']):
                 dom += (float(r['HST']) - float(r['AST'])) * (0.04 if is_h else -0.04)
-        return v, n, d, dom
+        avg_bp = sum(bp)/len(bp) if bp else 1.2
+        avg_bc = sum(bc)/len(bc) if bc else 1.2
+        return v, n, d, dom, avg_bp, avg_bc
 
     def sl(t, h=True):
         s = df[df['HomeTeam'] == t].tail(3) if h else df[df['AwayTeam'] == t].tail(3)
         v = len(s[s['FTR'] == ('H' if h else 'A')]); n = len(s[s['FTR'] == 'D'])
         return v, n, len(s) - v - n
 
-    g1v, g1n, g1d, dom1 = stats_team(eq1)
-    g2v, g2n, g2d, dom2 = stats_team(eq2)
+    g1v, g1n, g1d, dom1, bp1, bc1 = stats_team(eq1)
+    g2v, g2n, g2d, dom2, bp2, bc2 = stats_team(eq2)
     hv, hn, hd = sl(eq1, True); av, an, ad = sl(eq2, False)
 
     t3_1 = max(0.1, (g1v + g2d) - (hv + ad) + (dom1 - dom2))
     t3_n = max(0.1, (g1n + g2n) - (hn + an))
     t3_2 = max(0.1, (g1d + g2v) - (hd + av) + (dom2 - dom1))
-    return t3_1, t3_n, t3_2
+
+    # Estimation du score exact probable (moyenne attaque/défense croisée)
+    buts_1 = round((bp1 + bc2) / 2.0)
+    buts_2 = round((bp2 + bc1) / 2.0)
+    return t3_1, t3_n, t3_2, f"{buts_1} - {buts_2}"
 
 with tab_calc:
     ligue = st.selectbox("🏟️ Choisir le championnat", list(CHAMPIONNATS.keys()))
@@ -149,15 +148,13 @@ with tab_calc:
             elif eq1 == eq2: st.warning("Choisis deux équipes différentes.")
             else:
                 st.session_state.analyses_count += 1
-                t3v, t3n, t3d = calc_v2(df, eq1, eq2); tot = max(1.0, t3v + t3n + t3d)
+                t3v, t3n, t3d, score_est = calc_v2_and_score(df, eq1, eq2); tot = max(1.0, t3v + t3n + t3d)
                 if issue == "🏠 Équipe 1":
-                    ct = (1 + t3d / t3v) if dnb else (tot / t3v)
-                    cr = (c1 * (cn - 1) / cn) if dnb else c1
+                    ct = (1 + t3d / t3v) if dnb else (tot / t3v); cr = (c1 * (cn - 1) / cn) if dnb else c1
                     cmin, cmax, lbl = (1.90, 3.50, f"{eq1} (DNB)") if dnb else (2.00, 5.00, f"{eq1} (1)")
                 elif issue == "🤝 Match Nul": ct, cr, cmin, cmax, lbl = (tot / t3n), cn, 2.50, 4.50, "Match Nul"
                 else:
-                    ct = (1 + t3v / t3d) if dnb else (tot / t3d)
-                    cr = (c2 * (cn - 1) / cn) if dnb else c2
+                    ct = (1 + t3v / t3d) if dnb else (tot / t3d); cr = (c2 * (cn - 1) / cn) if dnb else c2
                     cmin, cmax, lbl = (1.90, 3.50, f"{eq2} (DNB)") if dnb else (2.00, 5.00, f"{eq2} (2)")
 
                 ok = (cr > ct) and (cmin <= cr <= cmax)
@@ -165,6 +162,7 @@ with tab_calc:
                 mise = obj / (cr - 1.0) if (ok and cr > 1) else 0.0
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Cote Juste V2", f"{ct:.2f}"); m2.metric("Cote Jouée", f"{cr:.2f}"); m3.metric("Mise Conseillée", f"{mise:.2f} €")
+                st.info(f"🔮 **Pronostic Score Exact (tendance stat) :** {eq1} **{score_est}** {eq2}")
                 if ok:
                     conf = "🔥 Confiance Élevée" if (cr / ct) >= 1.12 else "⚖️ Confiance Modérée"
                     st.success(f"✅ **VALUE BET ({conf}) — PARIER {mise:.2f} €** sur **{lbl}** (Gain net : **+{obj:.2f} €**)")
@@ -173,8 +171,4 @@ with tab_calc:
                 else: st.warning(f"⏸️ **NO BET (PASSER)** — Cote {cr:.2f} vs Cote Juste {ct:.2f}")
 
 with tab_suivi:
-    st.subheader(f"💰 Bankroll de {st.session_state.user_id}")
-    b1, b2 = st.columns(2)
-    nouv_dep = b1.number_input("Capital de départ (€)", min_value=1.0, value=float(user_data.get("capital_depart", 20.0)), step=5.0)
-    if nouv_dep != user_data.get("capital_depart", 20.0): user_data["capital_depart"] = nouv_dep; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
-        
+                
