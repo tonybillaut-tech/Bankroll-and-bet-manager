@@ -12,45 +12,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Generation automatique des CSV
+      - name: Telechargement API officielle (10 Competitions)
         run: |
           python3 - << 'EOF'
           import os, urllib.request, json, csv
           os.makedirs("data", exist_ok=True)
-          ligues = {
-              "F1": "fr.1", "F2": "fr.2", "E0": "en.1", "E1": "en.2",
-              "SP1": "es.1", "I1": "it.1", "I2": "it.2", "D1": "de.1",
-              "P1": "pt.1", "N1": "nl.1", "B1": "be.1", "G1": "gr.1"
-          }
-          for code, of in ligues.items():
-              for season in ("2026-27", "2025-26"):
-                  url = f"https://githubusercontent.com{season}/{of}.json"
-                  try:
-                      req = urllib.request.urlopen(url, timeout=10)
-                      data = json.loads(req.read().decode("utf-8"))
-                      rows = []
-                      for m in data.get("matches", []):
-                          ft = m.get("score", {}).get("ft")
-                          if isinstance(ft, list) and len(ft) == 2:
-                              hg = ft.pop(0)
-                              ag = ft.pop(0)
-                              ftr = "H" if hg > ag else ("A" if ag > hg else "D")
-                              rows.append((m.get("team1"), m.get("team2"), hg, ag, ftr))
-                      if len(rows) >= 10:
-                          with open(f"data/{code}.csv", "w", newline="", encoding="utf-8") as f:
-                              w = csv.writer(f)
-                              w.writerow(("HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"))
-                              w.writerows(rows)
-                          print(f"OK {code} ({season}): {len(rows)} matchs")
-                          break
-                  except Exception as e:
-                      print(f"Skip {code} {season}: {e}")
+          token = "d2193c7f2b1e47458dbed1b4e8c10732"
+          ligues = ["FL1", "PL", "ELC", "PD", "SA", "BL1", "PPL", "DED", "BSA", "CL"]
+          for code in ligues:
+              url = f"https://football-data.org{code}/matches?status=FINISHED"
+              req = urllib.request.Request(url, headers={"X-Auth-Token": token})
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      data = json.loads(resp.read().decode("utf-8"))
+                  rows = []
+                  for m in data.get("matches", []):
+                      ft = m.get("score", {}).get("fullTime", {})
+                      hg, ag = ft.get("home"), ft.get("away")
+                      if hg is not None and ag is not None:
+                          ftr = "H" if hg > ag else ("A" if ag > hg else "D")
+                          h = m["homeTeam"].get("shortName") or m["homeTeam"]["name"]
+                          a = m["awayTeam"].get("shortName") or m["awayTeam"]["name"]
+                          rows.append((h, a, int(hg), int(ag), ftr))
+                  if rows:
+                      with open(f"data/{code}.csv", "w", newline="", encoding="utf-8") as f:
+                          w = csv.writer(f)
+                          w.writerow(("HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"))
+                          w.writerows(rows)
+                      print("OK", code, len(rows))
+              except Exception as e:
+                  print("ERR", code, e)
           EOF
       - name: Sauvegarde dans le depot
         run: |
           git config user.name "SmartStake Bot"
           git config user.email "bot@smartstake.app"
           git add data/
-          git commit -m "Auto-update CSV" || exit 0
+          git commit -m "Auto-update API CSV" || exit 0
           git push
           
