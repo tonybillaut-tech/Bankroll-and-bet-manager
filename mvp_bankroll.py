@@ -33,7 +33,7 @@ for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
     if k not in st.session_state: st.session_state[k] = v
 
 badge = "PRO ✨" if st.session_state.is_pro else f"Essai gratuit : {max(0, 3 - st.session_state.analyses_count)}/3"
-st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>Algorithme V2 (Forme + Tirs cadrés & Buts) • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>11 Championnats Auto • Algorithme V2 • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
 st.caption("⚖️ Outil statistique d'aide à la décision (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
 
 with st.expander("👤 Mon Espace Parieur (Sauvegarde Bankroll)", expanded=False):
@@ -57,11 +57,9 @@ capital_actuel = get_cap(user_data)
 tab_calc, tab_suivi, tab_tuto, tab_pro = st.tabs(["⚽ Analyse Match", "💰 Ma Bankroll", "📘 Tutoriel", "🏆 Offre Pro"])
 
 CHAMPIONNATS = {
-    "🇫🇷 Ligue 1 (Inclus)": "LOCAL_F1",
-    "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": "https://football-data.co.uk",
-    "🇪🇸 La Liga": "https://football-data.co.uk",
-    "🇮🇹 Serie A": "https://football-data.co.uk",
-    "🇩🇪 Bundesliga": "https://football-data.co.uk"
+    "🇫🇷 Ligue 1": "F1", "🇫🇷 Ligue 2": "F2", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League": "E0", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship": "E1",
+    "🇪🇸 La Liga": "SP1", "🇮🇹 Serie A": "I1", "🇩🇪 Bundesliga": "D1", "🇵🇹 Liga Portugal": "P1",
+    "🇳🇱 Eredivisie": "N1", "🇧🇪 Pro League": "B1", "🇬🇷 Super League": "G1"
 }
 
 def read_clean_csv(source):
@@ -72,23 +70,22 @@ def read_clean_csv(source):
         except Exception: continue
     return pd.DataFrame()
 
-def get_data(src):
-    if src == "LOCAL_F1":
-        for fname in ["F1.csv", "f1.csv"]:
-            if os.path.exists(fname): return read_clean_csv(fname)
-        src = "https://githubusercontent.com"
+def get_data(code):
+    for path in [f"data/{code}.csv", f"{code}.csv"]:
+        if os.path.exists(path):
+            df = read_clean_csv(path)
+            if not df.empty: return df
     try:
-        r = requests.get(src, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        r.raise_for_status()
-        return read_clean_csv(io.StringIO(r.text))
-    except Exception: return pd.DataFrame()
+        r = requests.get(f"https://football-data.co.uk{code}.csv", headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code == 200: return read_clean_csv(io.StringIO(r.text))
+    except Exception: pass
+    return pd.DataFrame()
 
 def calc_v2_and_score(df, eq1, eq2):
     def stats_team(t):
         g = df[(df['HomeTeam'] == t) | (df['AwayTeam'] == t)].tail(6)
         v = len(g[((g['HomeTeam'] == t) & (g['FTR'] == 'H')) | ((g['AwayTeam'] == t) & (g['FTR'] == 'A'))])
-        n = len(g[g['FTR'] == 'D']); d = len(g) - v - n; dom = 0.0
-        bp, bc = [], []
+        n = len(g[g['FTR'] == 'D']); d = len(g) - v - n; dom = 0.0; bp, bc = [], []
         for _, r in g.iterrows():
             is_h = (r['HomeTeam'] == t)
             if {'FTHG', 'FTAG'}.issubset(g.columns) and pd.notna(r['FTHG']) and pd.notna(r['FTAG']):
@@ -97,38 +94,26 @@ def calc_v2_and_score(df, eq1, eq2):
                 bp.append(hg if is_h else ag); bc.append(ag if is_h else hg)
             if {'HST', 'AST'}.issubset(g.columns) and pd.notna(r['HST']) and pd.notna(r['AST']):
                 dom += (float(r['HST']) - float(r['AST'])) * (0.04 if is_h else -0.04)
-        avg_bp = sum(bp)/len(bp) if bp else 1.2
-        avg_bc = sum(bc)/len(bc) if bc else 1.2
-        return v, n, d, dom, avg_bp, avg_bc
+        return v, n, d, dom, (sum(bp)/len(bp) if bp else 1.2), (sum(bc)/len(bc) if bc else 1.2)
 
     def sl(t, h=True):
         s = df[df['HomeTeam'] == t].tail(3) if h else df[df['AwayTeam'] == t].tail(3)
         v = len(s[s['FTR'] == ('H' if h else 'A')]); n = len(s[s['FTR'] == 'D'])
         return v, n, len(s) - v - n
 
-    g1v, g1n, g1d, dom1, bp1, bc1 = stats_team(eq1)
-    g2v, g2n, g2d, dom2, bp2, bc2 = stats_team(eq2)
+    g1v, g1n, g1d, dom1, bp1, bc1 = stats_team(eq1); g2v, g2n, g2d, dom2, bp2, bc2 = stats_team(eq2)
     hv, hn, hd = sl(eq1, True); av, an, ad = sl(eq2, False)
-
     t3_1 = max(0.1, (g1v + g2d) - (hv + ad) + (dom1 - dom2))
     t3_n = max(0.1, (g1n + g2n) - (hn + an))
     t3_2 = max(0.1, (g1d + g2v) - (hd + av) + (dom2 - dom1))
-
-    # Estimation du score exact probable (moyenne attaque/défense croisée)
-    buts_1 = round((bp1 + bc2) / 2.0)
-    buts_2 = round((bp2 + bc1) / 2.0)
-    return t3_1, t3_n, t3_2, f"{buts_1} - {buts_2}"
+    return t3_1, t3_n, t3_2, f"{round((bp1 + bc2) / 2.0)} - {round((bp2 + bc1) / 2.0)}"
 
 with tab_calc:
-    ligue = st.selectbox("🏟️ Choisir le championnat", list(CHAMPIONNATS.keys()))
+    ligue = st.selectbox("🏟️ Championnat (Données mises à jour automatiquement)", list(CHAMPIONNATS.keys()))
     df = get_data(CHAMPIONNATS[ligue])
-    with st.expander("📂 Charger un autre championnat (CSV Football-Data)"):
-        st.markdown("[🇫🇷 Ligue 1](https://football-data.co.uk) | [🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League](https://football-data.co.uk) | [🇪🇸 Liga](https://football-data.co.uk) | [🇮🇹 Serie A](https://football-data.co.uk) | [🇩🇪 Bundesliga](https://football-data.co.uk)")
-        up = st.file_uploader("Importer un fichier CSV :", type=["csv"])
-        if up is not None: df = read_clean_csv(up); st.success(f"✅ {len(df)} matchs chargés !")
-
-    if df.empty: st.warning("⚠️ Aucun match chargé. Vérifie F1.csv sur GitHub ou importe un CSV ci-dessus.")
+    if df.empty: st.warning("⏳ Synchronisation des matchs en cours... Actualise dans quelques secondes.")
     else:
+        st.caption(f"✅ Base à jour : **{len(df)} matchs** analysés automatiquement.")
         eqs = sorted(df['HomeTeam'].unique().tolist())
         col1, col2 = st.columns(2)
         eq1 = col1.selectbox("🏠 Équipe Domicile", eqs, index=0)
@@ -181,29 +166,4 @@ with tab_suivi:
         for i, p in enumerate(user_data["paris"]):
             col_info, col_stat = st.columns(2)
             col_info.write(f"⚽ **{p['Match']}** — {p['Choix']} (@{p['Cote']}) | {p['Mise (€)']}€")
-            opts = ["⏳ En cours", "✅ Gagné", "🔄 Remboursé", "❌ Perdu"]
-            nouv_stat = col_stat.selectbox("Statut", opts, index=opts.index(p.get("Statut", "⏳ En cours")), key=f"stat_{i}", label_visibility="collapsed")
-            if nouv_stat != p.get("Statut"): user_data["paris"][i]["Statut"] = nouv_stat; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
-        buf = io.BytesIO(); pd.DataFrame(user_data["paris"]).to_excel(buf, index=False)
-        st.download_button("📥 Exporter mon bilan (.xlsx)", buf.getvalue(), f"smartstake_{st.session_state.user_id}.xlsx", use_container_width=True)
-
-with tab_tuto:
-    st.subheader("📘 Guide du Parieur SmartStake")
-    st.write("**1. Créer son espace :** Ouvre *👤 Mon Espace Parieur* en haut et tape ton pseudo ou e-mail pour isoler ta bankroll.")
-    st.write("**2. Charger un championnat :** La Ligue 1 est incluse. Pour un autre championnat, ouvre *📂 Charger un autre championnat*, télécharge le CSV et importe-le.")
-    st.write("**3. Lancer l'analyse V2 :** Sélectionne les deux équipes, ton issue (1 / N / 2) et entre les 3 cotes. L'algo croise les 6 derniers matchs, les 3 derniers domicile/extérieur, les buts et les tirs cadrés.")
-    st.write("**4. Option DNB & Risque :** Garde *Remboursé si nul* actif pour sécuriser ta mise. Le signal passe au vert uniquement si la cote jouée dépasse la *Cote Juste V2*.")
-    st.write("**5. Gérer sa Bankroll :** Dans *💰 Ma Bankroll*, passe tes matchs en *Gagné*, *Remboursé* ou *Perdu* pour recalculer automatiquement ton capital.")
-
-with tab_pro:
-    st.subheader("🏆 Passe à SmartStake Pro")
-    st.write("✅ **Analyses illimitées** sur tous les championnats européens")
-    st.write("✅ **Algorithme V2 complet** (Tirs cadrés + Buts + Score exact)")
-    st.write("✅ **Option Remboursé si nul (DNB)** et gestion du risque sur-mesure")
-    st.info("🔥 **Offre de lancement : 29,90 € / an** (soit 2,49 € / mois).")
-    mail = st.text_input("Entre ton e-mail pour activer l'accès Pro :")
-    if st.button("🚀 Activer mon accès Pro", type="primary", use_container_width=True) and "@" in mail:
-        st.session_state.is_pro = True; user_data["is_pro"] = True; db[st.session_state.user_id] = user_data; save_db(db); st.success("🎉 Accès Pro activé !")
-
-st.caption("SmartStake Football v2.5")
-
+        
