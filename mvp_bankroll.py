@@ -35,7 +35,7 @@ tab_calc, tab_suivi, tab_bt, tab_tuto, tab_pro = st.tabs(["⚽ Analyse", "💰 B
 
 with tab_calc:
     ligue = st.selectbox("🏟️ Compétition (Temps Réel)", list(CHAMPIONNATS.keys()))
-    fd_code = CHAMPIONNATS[ligue]
+    fd_code = CHAMPIONNATS[ligue][0]
     df, err = get_cached_matches(CHAMPIONNATS[ligue])
     if df.empty: st.warning(f"⚠️ Flux indisponible ({err}).")
     else:
@@ -121,11 +121,12 @@ with tab_bt:
     if st.button("🚀 Lancer le Backtest Financier (100 € / ligue)", type="primary", use_container_width=True):
         res = []
         bar = st.progress(0)
-        eu_ligues = [(k, v) for k, v in CHAMPIONNATS.items() if v not in ("BSA", "CL")]
+        eu_ligues = [(k, v[1]) for k, v in CHAMPIONNATS.items() if v[1] not in ("BSA", "CL")]
         for idx, (nom, csv_c) in enumerate(eu_ligues):
             r = run_financial_backtest(csv_c, saison=saison_sel, cap_init=100.0, risque=5.0, use_dnb=dnb_bt)
             if r: res.append({"Compétition": nom, **r})
             bar.progress((idx + 1) / len(eu_ligues))
         if res:
             df_bt = pd.DataFrame(res)
-            
+            st.dataframe(df_bt, use_container_width=True, hide_index=True)
+        
