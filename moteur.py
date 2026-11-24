@@ -49,9 +49,7 @@ def fetch_matches(codes):
                 hg, ag = ft.get("home"), ft.get("away")
                 if hg is not None and ag is not None:
                     ftr = "H" if hg > ag else ("A" if ag > hg else "D")
-                    h = m["homeTeam"].get("shortName") or m["homeTeam"]["name"]
-                    a = m["awayTeam"].get("shortName") or m["awayTeam"]["name"]
-                    rows.append({"HomeTeam": h, "AwayTeam": a, "FTHG": int(hg), "FTAG": int(ag), "FTR": ftr})
+                    rows.append({"HomeTeam": m["homeTeam"].get("shortName") or m["homeTeam"]["name"], "AwayTeam": m["awayTeam"].get("shortName") or m["awayTeam"]["name"], "FTHG": int(hg), "FTAG": int(ag), "FTR": ftr})
             if rows: return pd.DataFrame(rows), ""
         return pd.DataFrame(), f"HTTP {r.status_code}"
     except Exception as e: return pd.DataFrame(), str(e)
