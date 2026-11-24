@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import datetime
-from moteur import CHAMPIONNATS, load_db, save_db, get_cap, fetch_matches, calc_v2
+from moteur import CHAMPIONNATS, load_db, save_db, get_cap, fetch_matches, calc_v2, poisson_score
 
 st.set_page_config(page_title="SmartStake Foot", page_icon="⚽", layout="centered")
 st.markdown("""<style>.hero{background:linear-gradient(135deg,#064e3b,#15803d);padding:16px;border-radius:14px;color:white;margin-bottom:10px;border:1px solid #22c55e}.hero h1{margin:0;font-size:1.6rem;color:#fff}.hero p{margin:4px 0 0;font-size:.9rem;color:#dcfce7}.stButton>button[kind="primary"]{background-color:#16a34a;border-color:#16a34a;color:white;font-weight:700;border-radius:10px;height:3em}</style>""", unsafe_allow_html=True)
@@ -13,7 +13,7 @@ for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
     if k not in st.session_state: st.session_state[k] = v
 
 badge = "PRO ✨" if st.session_state.is_pro else f"Essai : {max(0, 3 - st.session_state.analyses_count)}/3"
-st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>10 Compétitions Live • Algo V2 • Bankroll • <b>{badge}</b></p></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>10 Compétitions Live • Algo V2 • Score Exact • <b>{badge}</b></p></div>', unsafe_allow_html=True)
 st.caption("⚖️ Aide statistique (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
 
 with st.expander("👤 Mon Espace Parieur", expanded=False):
@@ -43,22 +43,22 @@ with tab_calc:
         col1, col2 = st.columns(2)
         eq1 = col1.selectbox("🏠 Domicile", eqs, index=0)
         eq2 = col2.selectbox("✈️ Extérieur", eqs, index=1 if len(eqs) > 1 else 0)
-        issue = st.radio("🎯 Pronostic", ["🏠 Équipe 1", "🤝 Match Nul", "✈️ Équipe 2"], index=2, horizontal=True)
+        issue = st.radio("🎯 Pronostic 1N2", ["🏠 Équipe 1", "🤝 Match Nul", "✈️ Équipe 2"], index=2, horizontal=True)
         r1, r2 = st.columns(2)
         cap_input = r1.number_input("💰 Bankroll (€)", min_value=1.0, value=capital_actuel, step=1.0)
-        risque_pct = r2.select_slider("🎚️ Risque (%)", options=[2.5, 5.0, 7.5, 10.0], value=5.0)
+        risque_pct = r2.select_slider("🎚️ Risque 1N2 (%)", options=[2.5, 5.0, 7.5, 10.0], value=5.0)
         q1, q2, q3 = st.columns(3)
         c1 = q1.number_input("Cote 1", min_value=1.05, value=2.20, step=0.05)
         cn = q2.number_input("Cote N", min_value=1.50, value=3.30, step=0.05)
         c2 = q3.number_input("Cote 2", min_value=1.05, value=3.10, step=0.05)
         dnb = st.toggle("🛡️ Remboursé si nul (DNB)", value=True) if issue != "🤝 Match Nul" else False
 
-        if st.button("⚽ ANALYSER & CALCULER LA MISE", type="primary", use_container_width=True):
+        if st.button("⚽ ANALYSER LE 1N2 & CALCULER LA MISE", type="primary", use_container_width=True):
             if not st.session_state.is_pro and st.session_state.analyses_count >= 3: st.error("🔒 Limite atteinte ! Passe en Pro.")
             elif eq1 == eq2: st.warning("Choisis deux équipes différentes.")
             else:
                 st.session_state.analyses_count += 1
-                t3v, t3n, t3d, sc = calc_v2(df, eq1, eq2); tot = max(1.0, t3v + t3n + t3d)
+                t3v, t3n, t3d, l1, l2 = calc_v2(df, eq1, eq2); tot = max(1.0, t3v + t3n + t3d)
                 if issue == "🏠 Équipe 1": ct, cr, cmin, cmax, lbl = ((1 + t3d/t3v) if dnb else tot/t3v), ((c1*(cn-1)/cn) if dnb else c1), (1.90 if dnb else 2.00), (3.50 if dnb else 5.00), f"{eq1} ({'DNB' if dnb else '1'})"
                 elif issue == "🤝 Match Nul": ct, cr, cmin, cmax, lbl = tot/t3n, cn, 2.50, 4.50, "Match Nul"
                 else: ct, cr, cmin, cmax, lbl = ((1 + t3v/t3d) if dnb else tot/t3d), ((c2*(cn-1)/cn) if dnb else c2), (1.90 if dnb else 2.00), (3.50 if dnb else 5.00), f"{eq2} ({'DNB' if dnb else '2'})"
@@ -66,14 +66,30 @@ with tab_calc:
                 obj = (cap_input * (risque_pct / 100.0)) * (cr / 2.0) if ok else 0.0
                 mise = obj / (cr - 1.0) if (ok and cr > 1) else 0.0
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Cote Juste V2", f"{ct:.2f}"); m2.metric("Cote Jouée", f"{cr:.2f}"); m3.metric("Mise", f"{mise:.2f} €")
-                st.info(f"🔮 **Score Exact estimé :** {eq1} **{sc}** {eq2}")
+                m1.metric("Cote Juste V2", f"{ct:.2f}"); m2.metric("Cote Jouée", f"{cr:.2f}"); m3.metric("Mise 1N2", f"{mise:.2f} €")
+                st.info(f"🔮 **Score Exact tendance :** {eq1} **{round(l1)} - {round(l2)}** {eq2}")
                 if ok:
                     conf = "🔥 Confiance Élevée" if (cr / ct) >= 1.12 else "⚖️ Confiance Modérée"
                     st.success(f"✅ **VALUE BET ({conf}) — PARIER {mise:.2f} €** sur **{lbl}** (Gain : **+{obj:.2f} €**)")
                     user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2), "Statut": "⏳ En cours"})
                     db[st.session_state.user_id] = user_data; save_db(db)
                 else: st.warning(f"⏸️ **NO BET (PASSER)** — Cote {cr:.2f} vs Juste {ct:.2f}")
+
+        with st.expander("🎯 Calculateur de Mise — Score Exact (Loi de Poisson)", expanded=False):
+            _, _, _, l1, l2 = calc_v2(df, eq1, eq2)
+            s1, s2, s3 = st.columns(3)
+            g1 = s1.number_input("Buts Dom.", 0, 8, int(round(l1)))
+            g2 = s2.number_input("Buts Ext.", 0, 8, int(round(l2)))
+            c_sc = s3.number_input("Cote Score", 3.0, 200.0, 10.0, step=0.25)
+            ct_sc, prob_sc = poisson_score(l1, l2, g1, g2)
+            mise_sc = round(min(cap_input * 0.025, (cap_input * 0.025) * (10.0 / max(5.0, c_sc))), 2)
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Cote Juste Poisson", f"{ct_sc:.2f}"); k2.metric("Probabilité", f"{prob_sc}%"); k3.metric("Mise Max (≤2.5%)", f"{mise_sc:.2f} €")
+            if c_sc > ct_sc: st.success(f"✅ **Value Score Exact ({g1}-{g2})** — Mise conseillée : **{mise_sc:.2f} €**")
+            else: st.caption(f"⏸️ Cote bookmaker ({c_sc:.2f}) sous la cote juste Poisson ({ct_sc:.2f}) — Micro-mise fun : {mise_sc:.2f} € max.")
+            if st.button("➕ Enregistrer ce Score Exact dans ma Bankroll", use_container_width=True):
+                user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Match": f"{eq1}-{eq2}", "Choix": f"Score {g1}-{g2}", "Cote": round(c_sc, 2), "Mise (€)": mise_sc, "Gain Visé (€)": round(mise_sc * (c_sc - 1), 2), "Statut": "⏳ En cours"})
+                db[st.session_state.user_id] = user_data; save_db(db); st.success("✅ Pari Score Exact ajouté !")
 
 with tab_suivi:
     st.subheader(f"💰 Bankroll de {st.session_state.user_id}")
@@ -96,16 +112,15 @@ with tab_tuto:
     st.subheader("📘 Guide SmartStake")
     st.write("**1. Profil :** Ouvre *👤 Mon Espace Parieur* et tape ton pseudo ou e-mail.")
     st.write("**2. Temps réel :** Choisis parmi les 10 compétitions officielles mises à jour en direct.")
-    st.write("**3. Analyse V2 :** Sélectionne les équipes, ton pronostic et les 3 cotes (forme + lieu + buts).")
-    st.write("**4. DNB & Risque :** Garde *Remboursé si nul* actif ; le pari passe au vert si *Cote Jouée > Cote Juste V2*.")
-    st.write("**5. Bankroll :** Change le statut de tes paris dans *💰 Ma Bankroll* pour actualiser ton capital.")
+    st.write("**3. Analyse 1N2 & Score Exact :** Teste le 1N2 classique ou déplie *🎯 Calculateur de Mise — Score Exact* (loi de Poisson, mise plafonnée à 2,5 %).")
+    st.write("**4. Bankroll :** Change le statut de tes paris dans *💰 Ma Bankroll* pour actualiser ton capital.")
 
 with tab_pro:
     st.subheader("🏆 SmartStake Pro — 29,90 €/an")
-    st.write("✅ **Analyses illimitées** sur les 10 compétitions en direct + Algo V2 + Score exact + DNB.")
+    st.write("✅ **Analyses illimitées** sur les 10 compétitions en direct + Algo V2 + Score exact Poisson + DNB.")
     mail = st.text_input("Ton e-mail :")
     if st.button("🚀 Activer Pro", type="primary", use_container_width=True) and "@" in mail:
         st.session_state.is_pro = True; user_data["is_pro"] = True; db[st.session_state.user_id] = user_data; save_db(db); st.success("🎉 Pro activé !")
 
-st.caption("SmartStake Football v6.0 — Modulaire")
-            
+st.caption("SmartStake Football v6.1 — Poisson & Live")
+        
