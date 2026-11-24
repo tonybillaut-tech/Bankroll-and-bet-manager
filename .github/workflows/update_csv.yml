@@ -1,53 +1,30 @@
-name: Mise a jour automatique CSV Foot
+name: Telechargement Archives Backtest
 on:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: '0 5 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  update-data:
+  fetch-history:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Telechargement API officielle
+      - name: Telechargement CSV Bet365
         run: |
-          python3 - << 'EOF'
-          import os, urllib.request, json, csv, time
-          os.makedirs("data", exist_ok=True)
-          token = "d2193c7f2b1e47458dbed1b4e8c10732"
-          for code in ["FL1", "PL", "ELC", "PD", "SA", "BL1", "PPL", "DED", "BSA", "CL"]:
-              url = f"https://football-data.org{code}/matches?status=FINISHED"
-              req = urllib.request.Request(url, headers={"X-Auth-Token": token})
-              try:
-                  with urllib.request.urlopen(req, timeout=20) as resp:
-                      data = json.loads(resp.read().decode("utf-8"))
-                  rows = []
-                  for m in data.get("matches", []):
-                      ft = m.get("score", {}).get("fullTime", {})
-                      hg, ag = ft.get("home"), ft.get("away")
-                      if hg is not None and ag is not None:
-                          ftr = "H" if hg > ag else ("A" if ag > hg else "D")
-                          h = m["homeTeam"].get("shortName") or m["homeTeam"]["name"]
-                          a = m["awayTeam"].get("shortName") or m["awayTeam"]["name"]
-                          rows.append((h, a, int(hg), int(ag), ftr))
-                  if rows:
-                      with open(f"data/{code}.csv", "w", newline="", encoding="utf-8") as f:
-                          w = csv.writer(f)
-                          w.writerow(("HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"))
-                          w.writerows(rows)
-                      print("OK", code, len(rows))
-              except Exception as e:
-                  print("ERR", code, e)
-              time.sleep(7)
-          EOF
+          mkdir -p historique/2425 historique/2526
+          for s in 2425 2526; do
+            for c in F1 E0 E1 SP1 I1 D1 P1 N1; do
+              curl -sL -A "Mozilla/5.0" "https://football-data.co.uk{s}/${c}.csv" -o "historique/${s}/${c}.csv" || true
+            done
+          done
       - name: Sauvegarde dans le depot
         run: |
           git config user.name "SmartStake Bot"
           git config user.email "bot@smartstake.app"
-          git add data/
-          git commit -m "Auto-update API CSV" || exit 0
+          git add historique/
+          git commit -m "Update archives backtest" || exit 0
           git push
           
