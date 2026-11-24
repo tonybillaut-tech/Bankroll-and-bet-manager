@@ -96,15 +96,11 @@ def check_results(paris):
         if df is None: continue
         m = df[(df["HomeTeam"] == eq1) & (df["AwayTeam"] == eq2)].tail(1)
         if m.empty: continue
-        hg, ag, ftr, ch = int(m.iloc[0]["FTHG"]), int(m.iloc[0]["FTAG"]), m.iloc[0]["FTR"], p.get("Choix", "")
+        hg, ag, ftr, ch = int(m["FTHG"].values.item()), int(m["FTAG"].values.item()), str(m["FTR"].values.item()), p.get("Choix", "")
         if ch.startswith("Score "): p["Statut"] = "✅ Gagné" if ch == f"Score {hg}-{ag}" else "❌ Perdu"
         elif ch == "Match Nul": p["Statut"] = "✅ Gagné" if ftr == "D" else "❌ Perdu"
-        elif "(DNB)" in ch:
-            win = (eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")
-            p["Statut"] = "✅ Gagné" if win else ("🔄 Remboursé" if ftr == "D" else "❌ Perdu")
-        else:
-            win = (eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")
-            p["Statut"] = "✅ Gagné" if win else "❌ Perdu"
+        elif "(DNB)" in ch: p["Statut"] = "✅ Gagné" if ((eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")) else ("🔄 Remboursé" if ftr == "D" else "❌ Perdu")
+        else: p["Statut"] = "✅ Gagné" if ((eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")) else "❌ Perdu"
         maj += 1
     return maj
-    
+                
