@@ -1,8 +1,11 @@
 import pandas as pd
-import requests, json, os, urllib3, math
+import requests, json, os, urllib3, math, base64, io
+import streamlit as st
 
 urllib3.disable_warnings()
 FD_TOKEN = "d2193c7f2b1e47458dbed1b4e8c10732"
+GH_TOKEN = st.secrets.get("GH_TOKEN", "")
+GH_API = "https://github.com"
 DB_FILE = "smartstake_users.json"
 
 CHAMPIONNATS = {
@@ -14,6 +17,12 @@ CHAMPIONNATS = {
 }
 
 def load_db():
+    if GH_TOKEN:
+        try:
+            r = requests.get(GH_API, headers={"Authorization": f"token {GH_TOKEN}"}, timeout=10)
+            if r.status_code == 200:
+                return json.loads(base64.b64decode(r.json()["content"]).decode("utf-8"))
+        except Exception: pass
     try:
         if os.path.exists(DB_FILE):
             with open(DB_FILE, "r", encoding="utf-8") as f: return json.load(f)
@@ -24,6 +33,16 @@ def save_db(data):
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception: pass
+    if GH_TOKEN:
+        try:
+            hdrs = {"Authorization": f"token {GH_TOKEN}"}
+            g = requests.get(GH_API, headers=hdrs, timeout=10)
+            sha = g.json().get("sha") if g.status_code == 200 else None
+            b64 = base64.b64encode(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")).decode("utf-8")
+            payload = {"message": "Update bankroll", "content": b64}
+            if sha: payload["sha"] = sha
+            requests.put(GH_API, headers=hdrs, json=payload, timeout=10)
+        except Exception: pass
 
 def get_cap(u):
     cap = float(u.get("capital_depart", 20.0))
@@ -103,4 +122,35 @@ def check_results(paris):
         else: p["Statut"] = "✅ Gagné" if ((eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")) else "❌ Perdu"
         maj += 1
     return maj
-                
+
+def run_financial_backtest(csv_code, saison="2425", cap_init=100.0, risque=5.0, use_dnb=True):
+    url = f"https://football-data.co.uk{saison}/{csv_code}.csv"
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        if r.status_code != 200: return None
+        df = pd.read_csv(io.StringIO(r.text)).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR', 'B365H', 'B365D', 'B365A']).reset_index(drop=True)
+    except Exception: return None
+    if len(df) < 40: return None
+    cap, mise_tot, paris, gagnes = cap_init, 0.0, 0, 0
+    for i in range(35, len(df)):
+        row = df.iloc[i]
+        t3v, t3n, t3d, _, _ = calc_v2(df.iloc[:i], row["HomeTeam"], row["AwayTeam"])
+        tot = max(1.0, t3v + t3n + t3d)
+        c1, cn, c2, ftr = float(row["B365H"]), float(row["B365D"]), float(row["B365A"]), row["FTR"]
+        cands = [
+            ("H", (1 + t3d/t3v) if use_dnb else tot/t3v, (c1*(cn-1)/cn) if use_dnb else c1),
+            ("A", (1 + t3v/t3d) if use_dnb else tot/t3d, (c2*(cn-1)/cn) if use_dnb else c2)
+        ]
+        cmin, cmax = (1.90, 3.50) if use_dnb else (2.00, 5.00)
+        for side, ct, cr in cands:
+            if cr > ct and cmin <= cr <= cmax and cap > 1.0:
+                obj = (cap * (risque / 100.0)) * (cr / 2.0)
+                mise = min(cap, obj / (cr - 1.0))
+                paris += 1; mise_tot += mise
+                if ftr == side: cap += mise * (cr - 1.0); gagnes += 1
+                elif use_dnb and ftr == "D": gagnes += 1
+                else: cap -= mise
+                break
+    roi = round(((cap - cap_init) / max(1.0, mise_tot)) * 100, 1)
+    return {"Matchs": len(df)-35, "Paris": paris, "Réussite (%)": round(gagnes*100/max(1, paris), 1), "Finale (€)": round(cap, 2), "ROI (%)": roi}
+            
