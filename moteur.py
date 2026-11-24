@@ -81,4 +81,30 @@ def poisson_score(l1, l2, g1, g2):
     p2 = (math.exp(-l2) * (l2 ** g2)) / math.factorial(g2)
     prob = max(0.001, p1 * p2)
     return round(1.0 / prob, 2), round(prob * 100, 1)
+
+def check_results(paris):
+    maj = 0
+    codes = {p.get("Code") for p in paris if p.get("Statut") == "⏳ En cours" and p.get("Code")}
+    cache = {}
+    for c in codes:
+        df, _ = fetch_matches((c, ""))
+        if not df.empty: cache[c] = df.tail(30)
+    for p in paris:
+        if p.get("Statut") != "⏳ En cours" or "-" not in p.get("Match", ""): continue
+        eq1, eq2 = p["Match"].split("-", 1)
+        df = cache.get(p.get("Code"))
+        if df is None: continue
+        m = df[(df["HomeTeam"] == eq1) & (df["AwayTeam"] == eq2)].tail(1)
+        if m.empty: continue
+        hg, ag, ftr, ch = int(m.iloc[0]["FTHG"]), int(m.iloc[0]["FTAG"]), m.iloc[0]["FTR"], p.get("Choix", "")
+        if ch.startswith("Score "): p["Statut"] = "✅ Gagné" if ch == f"Score {hg}-{ag}" else "❌ Perdu"
+        elif ch == "Match Nul": p["Statut"] = "✅ Gagné" if ftr == "D" else "❌ Perdu"
+        elif "(DNB)" in ch:
+            win = (eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")
+            p["Statut"] = "✅ Gagné" if win else ("🔄 Remboursé" if ftr == "D" else "❌ Perdu")
+        else:
+            win = (eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")
+            p["Statut"] = "✅ Gagné" if win else "❌ Perdu"
+        maj += 1
+    return maj
     
