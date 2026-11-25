@@ -238,12 +238,10 @@ def calc_v3_dixon_coles(df, eq1, eq2):
 
     tot = max(0.001, p_v + p_n + p_d)
     return (p_v / tot) * 100.0, (p_n / tot) * 100.0, (p_d / tot) * 100.0, l1, l2
-
 @st.cache_data(ttl=3600, show_spinner=False)
 def train_meta_model(df_hash, df_sub):
     X, y = [], []
     label_map = {"H": 0, "D": 1, "A": 2}
-    # Apprentissage sur les 120 derniers matchs disponibles
     start = max(25, len(df_sub) - 120)
     for i in range(start, len(df_sub)):
         row = df_sub.iloc[i]
@@ -251,7 +249,7 @@ def train_meta_model(df_hash, df_sub):
         if ftr not in label_map:
             continue
         hist = df_sub.iloc[:i]
-        v2_1, v2_n, v2_2, l1_2, l2_2 = calc_v2(hist, row["HomeTeam"], row["AwayTeam"])
+        v2_1, v2_n, v2_2, _, _ = calc_v2(hist, row["HomeTeam"], row["AwayTeam"])
         tot2 = max(1.0, v2_1 + v2_n + v2_2)
         p2 = [v2_1 / tot2, v2_n / tot2, v2_2 / tot2]
 
@@ -259,4 +257,122 @@ def train_meta_model(df_hash, df_sub):
         v3_1, v3_n, v3_2, l1_3, l2_3 = calc_v3_dixon_coles(df_sub.iloc[:max(25, sub_i)], row["HomeTeam"], row["AwayTeam"])
         p3 = [v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0]
 
-                
+        feat = p2 + p3 + [p3[0] - p2[0], p3[2] - p2[2], l1_3 - l2_3]
+        X.append(feat)
+        y.append(label_map[ftr])
+
+    if len(set(y)) < 3 or len(X) < 30:
+        return None
+
+    clf = LogisticRegression(C=0.5, max_iter=300)
+    clf.fit(np.array(X), np.array(y))
+    return clf
+
+def calc_v4_meta(df, eq1, eq2):
+    sub = df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR', 'FTHG', 'FTAG']).tail(250).reset_index(drop=True)
+    v2_1, v2_n, v2_2, l1_2, l2_2 = calc_v2(sub, eq1, eq2)
+    v3_1, v3_n, v3_2, l1_3, l2_3 = calc_v3_dixon_coles(sub, eq1, eq2)
+
+    if len(sub) < 55:
+        return v3_1, v3_n, v3_2, l1_3, l2_3
+
+    df_hash = f"meta_{len(sub)}_{sub.iloc[-1]['HomeTeam']}_{sub.iloc[-1]['AwayTeam']}_{sub.iloc[-1]['FTHG']}"
+    clf = train_meta_model(df_hash, sub)
+    if clf is None:
+        return v3_1, v3_n, v3_2, l1_3, l2_3
+
+    tot2 = max(1.0, v2_1 + v2_n + v2_2)
+    p2 = [v2_1 / tot2, v2_n / tot2, v2_2 / tot2]
+    p3 = [v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0]
+    feat = np.array([p2 + p3 + [p3[0] - p2[0], p3[2] - p2[2], l1_3 - l2_3]])
+
+    probs = clf.predict_proba(feat)[0]
+    p_v = max(1.0, (0.8 * probs[0] + 0.2 * p3[0]) * 100.0)
+    p_n = max(1.0, (0.8 * probs[1] + 0.2 * p3[1]) * 100.0)
+    p_d = max(1.0, (0.8 * probs[2] + 0.2 * p3[2]) * 100.0)
+    return p_v, p_n, p_d, (0.75 * l1_3 + 0.25 * l1_2), (0.75 * l2_3 + 0.25 * l2_2)
+
+def poisson_score(l1, l2, g1, g2):
+    p1 = (math.exp(-l1) * (l1 ** g1)) / math.factorial(g1)
+    p2 = (math.exp(-l2) * (l2 ** g2)) / math.factorial(g2)
+    prob = max(0.001, p1 * p2)
+    return round(1.0 / prob, 2), round(prob * 100, 1)
+
+def check_results(paris):
+    maj = 0
+    codes = {p.get("Code") for p in paris if p.get("Statut") == "⏳ En cours" and p.get("Code")}
+    cache = {}
+    for c in codes:
+        df, _ = fetch_matches((c, ""))
+        if not df.empty:
+            cache[c] = df.tail(30)
+    for p in paris:
+        if p.get("Statut") != "⏳ En cours" or "-" not in p.get("Match", ""):
+            continue
+        eq1, eq2 = p["Match"].split("-", 1)
+        df = cache.get(p.get("Code"))
+        if df is None:
+            continue
+        m = df[(df["HomeTeam"] == eq1) & (df["AwayTeam"] == eq2)].tail(1)
+        if m.empty:
+            continue
+        hg = int(m["FTHG"].values.item())
+        ag = int(m["FTAG"].values.item())
+        ftr = str(m["FTR"].values.item())
+        ch = p.get("Choix", "")
+        if ch.startswith("Score "):
+            p["Statut"] = "✅ Gagné" if ch == f"Score {hg}-{ag}" else "❌ Perdu"
+        elif ch == "Match Nul":
+            p["Statut"] = "✅ Gagné" if ftr == "D" else "❌ Perdu"
+        elif "(DNB)" in ch:
+            p["Statut"] = "✅ Gagné" if ((eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")) else ("🔄 Remboursé" if ftr == "D" else "❌ Perdu")
+        else:
+            p["Statut"] = "✅ Gagné" if ((eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")) else "❌ Perdu"
+        maj += 1
+    return maj
+
+def run_financial_backtest(csv_code, saison="2425", cap_init=100.0, risque=5.0, use_dnb=True):
+    url = "https://" + "www.football-data.co.uk" + f"/mmz4281/{saison}/{csv_code}.csv"
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        if r.status_code != 200:
+            return None
+        df = pd.read_csv(io.StringIO(r.text)).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR', 'B365H', 'B365D', 'B365A']).reset_index(drop=True)
+    except Exception:
+        return None
+    if len(df) < 40:
+        return None
+    cap, mise_tot, paris, gagnes = cap_init, 0.0, 0, 0
+    for i in range(35, len(df)):
+        row = df.iloc[i]
+        t3v, t3n, t3d, _, _ = calc_v2(df.iloc[:i], row["HomeTeam"], row["AwayTeam"])
+        tot = max(1.0, t3v + t3n + t3d)
+        c1, cn, c2, ftr = float(row["B365H"]), float(row["B365D"]), float(row["B365A"]), row["FTR"]
+        cands = [
+            ("H", (1 + t3d / t3v) if use_dnb else tot / t3v, (c1 * (cn - 1) / cn) if use_dnb else c1),
+            ("A", (1 + t3v / t3d) if use_dnb else tot / t3d, (c2 * (cn - 1) / cn) if use_dnb else c2)
+        ]
+        cmin, cmax = (1.90, 3.50) if use_dnb else (2.00, 5.00)
+        for side, ct, cr in cands:
+            if cr > ct and cmin <= cr <= cmax and cap > 1.0:
+                obj = (cap * (risque / 100.0)) * (cr / 2.0)
+                mise = min(cap, obj / (cr - 1.0))
+                paris += 1
+                mise_tot += mise
+                if ftr == side:
+                    cap += mise * (cr - 1.0)
+                    gagnes += 1
+                elif use_dnb and ftr == "D":
+                    gagnes += 1
+                else:
+                    cap -= mise
+                break
+    roi = round(((cap - cap_init) / max(1.0, mise_tot)) * 100, 1)
+    return {
+        "Matchs": len(df) - 35,
+        "Paris": paris,
+        "Réussite (%)": round(gagnes * 100 / max(1, paris), 1),
+        "Finale (€)": round(cap, 2),
+        "ROI (%)": roi
+                  }
+        
