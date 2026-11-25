@@ -100,6 +100,7 @@ def save_db(data):
 def redeem_vip_code(code: str, user_id: str) -> bool:
     c_clean = code.strip().upper()
     if not c_clean or not SUPABASE_URL or not SUPABASE_KEY:
+        st.warning(f"Config manquante : ID={bool(SUPABASE_ID)}, KEY={bool(SUPABASE_KEY)}")
         return False
     sb_base = f"{SUPABASE_URL}/rest/v1/vip_codes"
     try:
@@ -109,7 +110,13 @@ def redeem_vip_code(code: str, user_id: str) -> bool:
             if item and not item.get("is_used", False):
                 up = requests.patch(f"{sb_base}?code=eq.{c_clean}", headers=_sb_headers(), json={"is_used": True, "used_by": user_id}, timeout=8)
                 return up.status_code in (200, 204)
-    except Exception:
-        pass
+            elif item and item.get("is_used", False):
+                st.warning("Ce code a déjà été utilisé.")
+            else:
+                st.warning(f"Code '{c_clean}' introuvable dans vip_codes.")
+        else:
+            st.warning(f"Erreur Supabase : HTTP {r.status_code}")
+    except Exception as e:
+        st.warning(f"Détail : {e}")
     return False
-    
+            
