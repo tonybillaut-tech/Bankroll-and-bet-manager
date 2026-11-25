@@ -96,4 +96,19 @@ def save_db(data):
             requests.put(GH_API, headers=hdrs, json=payload, timeout=10)
         except Exception:
             pass
-          
+
+def redeem_vip_code(code: str, user_id: str) -> bool:
+    c_clean = code.strip().upper()
+    if not c_clean or not SUPABASE_URL or not SUPABASE_KEY:
+        return False
+    try:
+        check_url = f"{SUPABASE_URL}/rest/v1/vip_codes?code=eq.{c_clean}&is_used=eq.false"
+        r = requests.get(check_url, headers=_sb_headers(), timeout=8)
+        if r.status_code == 200 and len(r.json()) > 0:
+            patch_url = f"{SUPABASE_URL}/rest/v1/vip_codes?code=eq.{c_clean}"
+            up = requests.patch(patch_url, headers=_sb_headers(), json={"is_used": True, "used_by": user_id}, timeout=8)
+            return up.status_code in (200, 204)
+    except Exception:
+        pass
+    return False
+    
