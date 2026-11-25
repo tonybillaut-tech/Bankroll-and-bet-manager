@@ -5,6 +5,7 @@ from datetime import datetime
 from moteur import CHAMPIONNATS, load_db, save_db, get_cap, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, poisson_score, check_results
 from onglets.backtest import render_backtest
 from onglets.infos import render_guide, render_pro
+from onglets.bankroll import render_bankroll
 
 st.set_page_config(page_title="SmartStake Foot", page_icon="⚽", layout="centered")
 st.markdown("""<style>.hero{background:linear-gradient(135deg,#064e3b,#15803d);padding:16px;border-radius:14px;color:white;margin-bottom:10px;border:1px solid #22c55e}.hero h1{margin:0;font-size:1.6rem;color:#fff}.hero p{margin:4px 0 0;font-size:.9rem;color:#dcfce7}.stButton>button[kind="primary"]{background-color:#16a34a;border-color:#16a34a;color:white;font-weight:700;border-radius:10px;height:3em}</style>""", unsafe_allow_html=True)
@@ -160,30 +161,4 @@ with tab_calc:
             k1.metric("Cote Juste Poisson", f"{ct_sc:.2f}"); k2.metric("Probabilité", f"{prob_sc}%"); k3.metric("Mise Max (≤2.5%)", f"{mise_sc:.2f} €")
             if c_sc > ct_sc: st.success(f"✅ **Value Score Exact ({g1}-{g2})** — Mise : **{mise_sc:.2f} €**")
             else: st.caption(f"⏸️ Cote ({c_sc:.2f}) < Juste ({ct_sc:.2f}) — Micro-mise fun : {mise_sc:.2f} € max.")
-    with tab_suivi:
-    st.subheader("💰 Gestion de Bankroll")
-    col_b1, col_b2 = st.columns(2)
-    col_b1.metric("Capital de départ", f"{user_data.get('capital_depart', 20.0):.2f} €")
-    col_b2.metric("Capital actuel", f"{capital_actuel:.2f} €")
-
-    paris = user_data.get("paris", [])
-    if paris:
-        df_paris = pd.DataFrame(paris)
-        st.dataframe(df_paris, use_container_width=True)
-        if st.button("🔄 Vérifier les résultats des matchs", use_container_width=True):
-            user_data["paris"] = check_results(paris)
-            db[st.session_state.user_id] = user_data
-            save_db(db)
-            st.rerun()
-    else:
-        st.info("Aucun pari enregistré pour le moment. Lance une analyse dans l'onglet ⚽ Analyse pour ajouter ton premier pari.")
-
-with tab_bt:
-    render_backtest(CHAMPIONNATS, get_cached_matches)
-
-with tab_tuto:
-    render_guide()
-
-with tab_pro:
-    render_pro(user_data, db, save_db)
 
