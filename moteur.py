@@ -8,7 +8,7 @@ urllib3.disable_warnings()
 
 REPO_NAME = "Bankroll-and-bet-manager"
 DB_FILE = "smartstake_users.json"
-GH_API = "/".join(["https://api.github.com", "repos", "tonybillaut-tech", REPO_NAME, "contents", DB_FILE])
+GH_API = "https://" + f"://github.com{REPO_NAME}/contents/{DB_FILE}"
 
 FD_TOKEN = st.secrets.get("FD_TOKEN", "d2193c7f2b1e47458dbed1b4e8c10732")
 GH_TOKEN = st.secrets.get("GH_TOKEN", "")
@@ -74,7 +74,7 @@ def fetch_matches(codes):
     fd_code, csv_code = codes
     err_api = ""
     try:
-        url = "/".join(["https://api.football-data.org", "v4", "competitions", fd_code, "matches?status=FINISHED"])
+        url = "https://" + "api.football-data.org" + f"/v4/competitions/{fd_code}/matches?status=FINISHED"
         r = requests.get(url, headers={"X-Auth-Token": FD_TOKEN}, timeout=25, verify=False)
         if r.status_code == 200:
             rows = []
@@ -261,3 +261,5 @@ def check_results(paris):
             continue
         m = df[(df["HomeTeam"] == eq1) & (df["AwayTeam"] == eq2)].tail(1)
         if m.empty:
+            continue
+                    
