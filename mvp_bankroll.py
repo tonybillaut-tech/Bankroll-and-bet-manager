@@ -11,13 +11,13 @@ st.markdown("""<style>.hero{background:linear-gradient(135deg,#064e3b,#15803d);p
 
 if "db" not in st.session_state: st.session_state.db = load_db()
 db = st.session_state.db
-for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
+for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False), ("last_scan", None)]:
     if k not in st.session_state: st.session_state[k] = v
 
 hero_box = st.empty()
 def draw_hero():
     badge = "PRO ✨" if st.session_state.is_pro else f"Essai : {max(0, 3 - st.session_state.analyses_count)}/3"
-    hero_box.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>10 Compétitions Live • V2 / V3 / Méta-IA V4 • <b>{badge}</b></p></div>', unsafe_allow_html=True)
+    hero_box.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>Scanner 360° • V2 / V3 / Méta-IA V4 • Score Exact • <b>{badge}</b></p></div>', unsafe_allow_html=True)
 
 draw_hero()
 st.caption("⚖️ Aide statistique (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
@@ -55,7 +55,6 @@ with tab_calc:
         col1, col2 = st.columns(2)
         eq1 = col1.selectbox("🏠 Domicile", eqs, index=0)
         eq2 = col2.selectbox("✈️ Extérieur", eqs, index=1 if len(eqs) > 1 else 0)
-        issue = st.radio("🎯 Pronostic 1N2", ["🏠 Équipe 1", "🤝 Match Nul", "✈️ Équipe 2"], index=2, horizontal=True)
         r1, r2, r3 = st.columns(3)
         cap_input = r1.number_input("💰 Bankroll (€)", min_value=1.0, value=capital_actuel, step=1.0)
         risque_pct = r2.select_slider("🎚️ Risque (%)", options=[2.5, 5.0, 7.5, 10.0], value=5.0)
@@ -64,35 +63,90 @@ with tab_calc:
         c1 = q1.number_input("Cote 1", min_value=1.05, value=2.20, step=0.05)
         cn = q2.number_input("Cote N", min_value=1.50, value=3.30, step=0.05)
         c2 = q3.number_input("Cote 2", min_value=1.05, value=3.10, step=0.05)
-        dnb = st.toggle("🛡️ Remboursé si nul (DNB)", value=True) if issue != "🤝 Match Nul" else False
+        dnb = st.toggle("🛡️ Remboursé si nul (DNB sur 1 et 2)", value=True)
         algo_ver = st.radio("🧠 Moteur d'Analyse", ["⚡ V2 (Forme)", "🧬 V3 (Dixon-Coles)", "🤖 V4 (Méta-IA V2+V3)"], index=2, horizontal=True)
 
-        if st.button("⚽ ANALYSER LE 1N2 & CALCULER LA MISE", type="primary", use_container_width=True):
-            if not st.session_state.is_pro and st.session_state.analyses_count >= 3: st.error("🔒 Limite atteinte ! Passe en Pro.")
-            elif eq1 == eq2: st.warning("Choisis deux équipes différentes.")
+        if st.button("🔍 SCANNER LES 3 ISSUES (1 / N / 2)", type="primary", use_container_width=True):
+            if not st.session_state.is_pro and st.session_state.analyses_count >= 3:
+                st.error("🔒 Limite atteinte ! Passe en Pro.")
+            elif eq1 == eq2:
+                st.warning("Choisis deux équipes différentes.")
             else:
                 st.session_state.analyses_count += 1
                 user_data["essai"] = st.session_state.analyses_count
+                db[st.session_state.user_id] = user_data
+                save_db(db)
                 draw_hero()
+
                 t3v, t3n, t3d, l1, l2 = run_algo(algo_ver, df, eq1, eq2)
                 tot = max(1.0, t3v + t3n + t3d)
-                if issue == "🏠 Équipe 1": ct, cr, cmin, cmax, lbl = ((1 + t3d/t3v) if dnb else tot/t3v), ((c1*(cn-1)/cn) if dnb else c1), (1.90 if dnb else 2.00), (3.50 if dnb else 5.00), f"{eq1} ({'DNB' if dnb else '1'})"
-                elif issue == "🤝 Match Nul": ct, cr, cmin, cmax, lbl = tot/t3n, cn, 2.50, 4.50, "Match Nul"
-                else: ct, cr, cmin, cmax, lbl = ((1 + t3v/t3d) if dnb else tot/t3d), ((c2*(cn-1)/cn) if dnb else c2), (1.90 if dnb else 2.00), (3.50 if dnb else 5.00), f"{eq2} ({'DNB' if dnb else '2'})"
-                ct_sec = ct * (1.0 + marge_val / 100.0)
-                ok = (cr > ct_sec) and (cmin <= cr <= cmax)
-                obj = (cap_input * (risque_pct / 100.0)) * (cr / 2.0) if ok else 0.0
-                mise = obj / (cr - 1.0) if (ok and cr > 1) else 0.0
-                m1, m2, m3 = st.columns(3)
-                m1.metric(f"Seuil (+{marge_val}%)", f"{ct_sec:.2f}"); m2.metric("Cote Jouée", f"{cr:.2f}"); m3.metric("Mise 1N2", f"{mise:.2f} €")
-                st.info(f"🔮 **Score Exact tendance :** {eq1} **{round(l1)} - {round(l2)}** {eq2}")
-                if ok:
-                    conf = "🔥 Confiance Élevée" if (cr / ct_sec) >= 1.08 else "⚖️ Confiance Modérée"
-                    st.success(f"✅ **VALUE BET ({conf}) — PARIER {mise:.2f} €** sur **{lbl}** (Gain : **+{obj:.2f} €**)")
-                    st.caption("📋 *Check-list rapide : vérifie les blessés/compos 1h avant le match.*")
-                    user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Code": fd_code, "Match": f"{eq1}-{eq2}", "Choix": lbl, "Cote": round(cr, 2), "Mise (€)": round(mise, 2), "Gain Visé (€)": round(obj, 2), "Statut": "⏳ En cours"})
-                else: st.warning(f"⏸️ **NO BET (PASSER)** — Cote {cr:.2f} vs Seuil {ct_sec:.2f}")
-                db[st.session_state.user_id] = user_data; save_db(db)
+
+                issues_spec = [
+                    ("1", f"🏠 {eq1} ({'DNB' if dnb else '1'})", (1 + t3d / t3v) if dnb else tot / t3v, (c1 * (cn - 1) / cn) if dnb else c1, 1.90 if dnb else 2.00, 3.50 if dnb else 5.00),
+                    ("N", "🤝 Match Nul", tot / t3n, cn, 2.50, 4.50),
+                    ("2", f"✈️ {eq2} ({'DNB' if dnb else '2'})", (1 + t3v / t3d) if dnb else tot / t3d, (c2 * (cn - 1) / cn) if dnb else c2, 1.90 if dnb else 2.00, 3.50 if dnb else 5.00)
+                ]
+
+                rapport = []
+                for code_i, lbl, ct, cr, cmin, cmax in issues_spec:
+                    ct_sec = ct * (1.0 + marge_val / 100.0)
+                    ratio = cr / max(0.01, ct_sec)
+                    if (cr > ct_sec) and (cmin <= cr <= cmax):
+                        statut_col = "🟢 VALUE BET"
+                        obj = (cap_input * (risque_pct / 100.0)) * (cr / 2.0)
+                        mise = obj / max(0.01, cr - 1.0)
+                    elif cr > ct:
+                        statut_col = "🟡 VALUE FAIBLE"
+                        obj, mise = 0.0, 0.0
+                    else:
+                        statut_col = "🔴 NO BET"
+                        obj, mise = 0.0, 0.0
+
+                    rapport.append({
+                        "code": code_i, "label": lbl, "statut": statut_col,
+                        "ct": round(ct, 2), "ct_sec": round(ct_sec, 2), "cr": round(cr, 2),
+                        "mise": round(mise, 2), "obj": round(obj, 2), "ratio": ratio
+                    })
+
+                st.session_state.last_scan = {
+                    "match": f"{eq1}-{eq2}", "fd_code": fd_code,
+                    "l1": l1, "l2": l2, "rapport": rapport
+                }
+
+        if st.session_state.last_scan and st.session_state.last_scan["match"] == f"{eq1}-{eq2}":
+            scan = st.session_state.last_scan
+            rapport = scan["rapport"]
+            st.info(f"🔮 **Score Exact tendance :** {eq1} **{round(scan['l1'])} - {round(scan['l2'])}** {eq2}")
+
+            cols = st.columns(3)
+            for idx, item in enumerate(rapport):
+                with cols[idx]:
+                    st.markdown(f"**{item['label']}**")
+                    if "🟢" in item["statut"]:
+                        st.success(f"**{item['statut']}**\n\nCote : **{item['cr']:.2f}** (Seuil {item['ct_sec']:.2f})\n\nMise : **{item['mise']:.2f} €** (+{item['obj']:.2f} €)")
+                    elif "🟡" in item["statut"]:
+                        st.warning(f"**{item['statut']}**\n\nCote : **{item['cr']:.2f}** (Juste {item['ct']:.2f})\n\nSeuil requis : {item['ct_sec']:.2f}")
+                    else:
+                        st.error(f"**{item['statut']}**\n\nCote : **{item['cr']:.2f}**\n\nCote juste : {item['ct']:.2f}")
+
+            greens = [r for r in rapport if "🟢" in r["statut"]]
+            if greens:
+                best = max(greens, key=lambda x: x["ratio"])
+                st.success(f"🏆 **Meilleure opportunité détectée :** **{best['label']}** — Mise : **{best['mise']:.2f} €** (Gain : **+{best['obj']:.2f} €**)")
+                st.caption("📋 *Check-list rapide : vérifie les blessés/compos 1h avant le match.*")
+                if st.button(f"➕ Enregistrer {best['label']} dans ma Bankroll", type="primary", use_container_width=True):
+                    user_data["paris"].append({
+                        "Date": datetime.now().strftime("%d/%m %H:%M"),
+                        "Code": scan["fd_code"], "Match": scan["match"],
+                        "Choix": best["label"].replace("🏠 ", "").replace("✈️ ", "").replace("🤝 ", ""),
+                        "Cote": best["cr"], "Mise (€)": best["mise"],
+                        "Gain Visé (€)": best["obj"], "Statut": "⏳ En cours"
+                    })
+                    db[st.session_state.user_id] = user_data
+                    save_db(db)
+                    st.success("✅ Pari enregistré dans ta Bankroll et synchronisé !")
+            else:
+                st.warning("⏸️ **Aucune opportunité verte sur ce match** — La discipline consiste à passer son tour.")
 
         with st.expander("🎯 Calculateur de Mise — Score Exact (Loi de Poisson)", expanded=False):
             _, _, _, l1, l2 = run_algo(algo_ver, df, eq1, eq2)
@@ -106,32 +160,4 @@ with tab_calc:
             k1.metric("Cote Juste Poisson", f"{ct_sc:.2f}"); k2.metric("Probabilité", f"{prob_sc}%"); k3.metric("Mise Max (≤2.5%)", f"{mise_sc:.2f} €")
             if c_sc > ct_sc: st.success(f"✅ **Value Score Exact ({g1}-{g2})** — Mise : **{mise_sc:.2f} €**")
             else: st.caption(f"⏸️ Cote ({c_sc:.2f}) < Juste ({ct_sc:.2f}) — Micro-mise fun : {mise_sc:.2f} € max.")
-            if st.button("➕ Enregistrer ce Score Exact", use_container_width=True):
-                user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Code": fd_code, "Match": f"{eq1}-{eq2}", "Choix": f"Score {g1}-{g2}", "Cote": round(c_sc, 2), "Mise (€)": mise_sc, "Gain Visé (€)": round(mise_sc * (c_sc - 1), 2), "Statut": "⏳ En cours"})
-                db[st.session_state.user_id] = user_data; save_db(db); st.success("✅ Ajouté !")
-
-with tab_suivi:
-    st.subheader(f"💰 Bankroll de {st.session_state.user_id}")
-    b1, b2 = st.columns(2)
-    nouv_dep = b1.number_input("Départ (€)", min_value=1.0, value=float(user_data.get("capital_depart", 20.0)), step=5.0)
-    if nouv_dep != user_data.get("capital_depart", 20.0): user_data["capital_depart"] = nouv_dep; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
-    b2.metric("Actuel", f"{capital_actuel:.2f} €", delta=f"{capital_actuel - nouv_dep:+.2f} €")
-    if st.button("🔄 Vérifier les matchs terminés", use_container_width=True):
-        nb = check_results(user_data["paris"])
-        if nb > 0: db[st.session_state.user_id] = user_data; save_db(db); st.success(f"✅ {nb} mis à jour !"); st.rerun()
-        else: st.info("Aucun match terminé trouvé.")
-    if not user_data["paris"]: st.info("Aucun pari validé.")
-    else:
-        for i, p in enumerate(user_data["paris"]):
-            c_i, c_s = st.columns(2)
-            c_i.write(f"⚽ **{p['Match']}** — {p['Choix']} (@{p['Cote']}) | {p['Mise (€)']}€")
-            opts = ["⏳ En cours", "✅ Gagné", "🔄 Remboursé", "❌ Perdu"]
-            ns = c_s.selectbox("Statut", opts, index=opts.index(p.get("Statut", "⏳ En cours")), key=f"st_{i}", label_visibility="collapsed")
-            if ns != p.get("Statut"): user_data["paris"][i]["Statut"] = ns; db[st.session_state.user_id] = user_data; save_db(db); st.rerun()
-        buf = io.BytesIO(); pd.DataFrame(user_data["paris"]).to_excel(buf, index=False)
-        st.download_button("📥 Exporter Excel", buf.getvalue(), f"smartstake_{st.session_state.user_id}.xlsx", use_container_width=True)
-
-with tab_bt: render_backtest()
-with tab_tuto: render_guide()
-with tab_pro: render_pro(db, user_data)
-
+                
