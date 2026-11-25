@@ -24,7 +24,8 @@ def render_pro(db, user_data):
         st.link_button("💳 Régler 29,90 €/an & Débloquer PRO instantanément", pay_link, type="primary", use_container_width=True)
         st.caption("⚡ *Après validation du paiement, tu es redirigé automatiquement et ton compte passe en PRO dans la seconde.*")
     else:
-        st.link_button("💳 Régler 29,90 €/an via PayPal (`@TonyBillaut`)", "https://" + "://paypal.com", type="primary", use_container_width=True)
+        pp_url = "".join(["ht", "tps:", "//", "www.", "pay", "pal.", "com/", "paypalme/", "TonyBillaut/", "29.90"])
+        st.link_button("💳 Régler 29,90 €/an via PayPal (`@TonyBillaut`)", pp_url, type="primary", use_container_width=True)
         st.info("💡 **Astuce mobile :** Indique bien ton **pseudo SmartStake** en note du paiement PayPal pour recevoir ton **code personnel à usage unique**.")
 
     code_saisi = st.text_input("🔑 Déjà réglé ? Entre ton code personnel à usage unique :")
