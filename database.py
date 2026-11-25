@@ -3,11 +3,12 @@ import streamlit as st
 
 REPO_NAME = "Bankroll-and-bet-manager"
 DB_FILE = "smartstake_users.json"
-GH_API = "".join(["ht", "tps:", "//", "api.git", "://hub.com", REPO_NAME, "/contents/", DB_FILE])
+GH_API = "".join(["ht", "tps:", "//", "api.git", "h", "ub.", "com/repos/tonybillaut-tech/", REPO_NAME, "/contents/", DB_FILE])
 
 GH_TOKEN = st.secrets.get("GH_TOKEN", "")
+DEFAULT_SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRudmpqenlzc3lleXZpcHFsdHdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU1Njk4NTYsImV4cCI6MjExMTE0NTg1Nn0.9VXz2mIHj-jcBfZvZWoTBIF0zSsVb3aDXoKP2P0Q7F8"
 SUPABASE_ID = st.secrets.get("SUPABASE_ID", "tnvjjzyssyeyvipqltws").strip()
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "").strip()
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", DEFAULT_SB_KEY).strip() or DEFAULT_SB_KEY
 SUPABASE_URL = "".join(["ht", "tps:", "//", SUPABASE_ID, ".supa", "base.", "co"]) if SUPABASE_ID else ""
 
 def hash_pin(pin: str) -> str:
@@ -16,12 +17,14 @@ def hash_pin(pin: str) -> str:
     return hashlib.sha256(f"smartstake_salt_{pin.strip()}".encode("utf-8")).hexdigest()
 
 def _sb_headers():
-    return {
+    h = {
         "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates"
     }
+    if SUPABASE_KEY.startswith("eyJ"):
+        h["Authorization"] = f"Bearer {SUPABASE_KEY}"
+    return h
 
 def load_db():
     if SUPABASE_URL and SUPABASE_KEY:
@@ -99,8 +102,7 @@ def save_db(data):
 
 def redeem_vip_code(code: str, user_id: str) -> bool:
     c_clean = code.strip().upper()
-    if not c_clean or not SUPABASE_URL or not SUPABASE_KEY:
-        st.warning(f"Config manquante : ID={bool(SUPABASE_ID)}, KEY={bool(SUPABASE_KEY)}")
+    if not c_clean:
         return False
     sb_base = f"{SUPABASE_URL}/rest/v1/vip_codes"
     try:
@@ -113,10 +115,10 @@ def redeem_vip_code(code: str, user_id: str) -> bool:
             elif item and item.get("is_used", False):
                 st.warning("Ce code a déjà été utilisé.")
             else:
-                st.warning(f"Code '{c_clean}' introuvable dans vip_codes.")
+                st.warning(f"Code '{c_clean}' introuvable.")
         else:
-            st.warning(f"Erreur Supabase : HTTP {r.status_code}")
+            st.warning(f"HTTP {r.status_code} — Active 'Legacy API keys' dans Supabase (Settings > API Keys).")
     except Exception as e:
         st.warning(f"Détail : {e}")
     return False
-            
+    
