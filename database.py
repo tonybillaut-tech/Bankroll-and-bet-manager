@@ -3,12 +3,12 @@ import streamlit as st
 
 REPO_NAME = "Bankroll-and-bet-manager"
 DB_FILE = "smartstake_users.json"
-GH_API = "https://" + f"://github.com{REPO_NAME}/contents/{DB_FILE}"
+GH_API = "".join(["ht", "tps:", "//", "api.git", "://hub.com", REPO_NAME, "/contents/", DB_FILE])
 
 GH_TOKEN = st.secrets.get("GH_TOKEN", "")
 SUPABASE_ID = st.secrets.get("SUPABASE_ID", "tnvjjzyssyeyvipqltws").strip()
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "").strip()
-SUPABASE_URL = "https://" + f"{SUPABASE_ID}.supabase.co" if SUPABASE_ID else ""
+SUPABASE_URL = "".join(["ht", "tps:", "//", SUPABASE_ID, ".supa", "base.", "co"]) if SUPABASE_ID else ""
 
 def hash_pin(pin: str) -> str:
     if not pin:
@@ -101,14 +101,17 @@ def redeem_vip_code(code: str, user_id: str) -> bool:
     c_clean = code.strip().upper()
     if not c_clean or not SUPABASE_URL or not SUPABASE_KEY:
         return False
+    sb_base = f"{SUPABASE_URL}/rest/v1/vip_codes"
     try:
-        check_url = f"{SUPABASE_URL}/rest/v1/vip_codes?code=eq.{c_clean}&is_used=eq.false"
-        r = requests.get(check_url, headers=_sb_headers(), timeout=8)
-        if r.status_code == 200 and len(r.json()) > 0:
-            patch_url = f"{SUPABASE_URL}/rest/v1/vip_codes?code=eq.{c_clean}"
-            up = requests.patch(patch_url, headers=_sb_headers(), json={"is_used": True, "used_by": user_id}, timeout=8)
-            return up.status_code in (200, 204)
-    except Exception:
-        pass
+        r = requests.get(f"{sb_base}?code=eq.{c_clean}&select=*", headers=_sb_headers(), timeout=8)
+        if r.status_code == 200:
+            rows = r.json()
+            if rows and not rows[0].get("is_used", False):
+                up = requests.patch(f"{sb_base}?code=eq.{c_clean}", headers=_sb_headers(), json={"is_used": True, "used_by": user_id}, timeout=8)
+                return up.status_code in (200, 204)
+        else:
+            st.caption(f"Debug Supabase : HTTP {r.status_code}")
+    except Exception as e:
+        st.caption(f"Debug réseau : {e}")
     return False
-    
+            
