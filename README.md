@@ -1,6 +1,6 @@
 # ⚽ SmartStake Football — Aide à la Décision & Gestion de Bankroll
 
-[![Ouvrir SmartStake](https://shields.io)](https://streamlit.app)
+### 👉 **[Lancer l'application SmartStake en direct](https://streamlit.app)**
 
 **SmartStake** est une application web d'analyse statistique et de gestion rigoureuse de bankroll dédiée aux paris sportifs sur le football. Elle permet d'identifier les **Value Bets** sur les 10 plus grandes compétitions mondiales et de calculer la mise mathématique optimale selon le profil de risque.
 
