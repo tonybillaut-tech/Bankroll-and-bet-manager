@@ -40,7 +40,9 @@ def render_analyse(db, user_data, capital_actuel, draw_hero):
     algo_ver = st.radio("🧠 Moteur d'Analyse", ["⚡ V2 (Forme)", "🧬 V3 (Dixon-Coles)", "🤖 V4 (Méta-IA V2+V3)"], index=2, horizontal=True)
 
     if st.button("🔍 SCANNER LES 3 ISSUES (1 / N / 2)", type="primary", use_container_width=True):
-        if not st.session_state.is_pro and st.session_state.analyses_count >= 3:
+        if st.session_state.get("user_id", "Invite") == "Invite":
+            st.warning("🔐 **Crée ton espace gratuit ci-dessus (Pseudo + Code PIN)** pour débloquer tes **3 analyses offertes** !")
+        elif not st.session_state.is_pro and st.session_state.analyses_count >= 3:
             st.error("🔒 Limite atteinte ! Passe en Pro dans l'onglet 🏆 Pro.")
         elif eq1 == eq2:
             st.warning("Choisis deux équipes différentes.")
@@ -120,8 +122,11 @@ def render_analyse(db, user_data, capital_actuel, draw_hero):
         else:
             st.caption(f"⏸️ Cote ({c_sc:.2f}) < Juste ({ct_sc:.2f}) — Micro-mise fun : {mise_sc:.2f} € max.")
         if st.button("➕ Enregistrer ce Score Exact", use_container_width=True):
-            user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Code": fd_code, "Match": f"{eq1}-{eq2}", "Choix": f"Score {g1}-{g2}", "Cote": round(c_sc, 2), "Mise (€)": mise_sc, "Gain Visé (€)": round(mise_sc * (c_sc - 1), 2), "Statut": "⏳ En cours"})
-            db[st.session_state.user_id] = user_data
-            save_db(db)
-            st.success("✅ Ajouté !")
-            
+            if st.session_state.get("user_id", "Invite") == "Invite":
+                st.warning("🔐 Connecte-toi ci-dessus pour enregistrer ce score dans ta bankroll.")
+            else:
+                user_data["paris"].append({"Date": datetime.now().strftime("%d/%m %H:%M"), "Code": fd_code, "Match": f"{eq1}-{eq2}", "Choix": f"Score {g1}-{g2}", "Cote": round(c_sc, 2), "Mise (€)": mise_sc, "Gain Visé (€)": round(mise_sc * (c_sc - 1), 2), "Statut": "⏳ En cours"})
+                db[st.session_state.user_id] = user_data
+                save_db(db)
+                st.success("✅ Ajouté !")
+                
