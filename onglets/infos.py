@@ -14,17 +14,26 @@ def render_pro(db, user_data):
     st.subheader("🏆 SmartStake Pro — 29,90 €/an")
     st.write("✨ **Passe au niveau supérieur avec une méthode disciplinée :**")
     st.write("• **Analyses illimitées** sur les 10 plus grandes compétitions en direct\n• **Marge de sécurité Value** + calcul automatique **DNB**\n• **Calculateur Score Exact** (Loi de Poisson) plafonné à ≤ 2,5 %\n• **Audit comparatif** des 10 championnats + **Sauvegarde Cloud**")
-    st.link_button("💳 Ouvrir PayPal (`@TonyBillaut`)", "https://paypal.com", type="primary", use_container_width=True)
-    st.info("💡 **Astuce mobile :** Tu peux aussi ouvrir ton appli **PayPal** et envoyer **29,90 €** directement à **`@TonyBillaut`** avec ton pseudo en note pour recevoir ton **code VIP**.")
+    
+    st.link_button("💳 Régler 29,90 € via PayPal (`@TonyBillaut`)", "https://paypal.com", type="primary", use_container_width=True)
+    st.info("💡 **Astuce mobile :** Indique bien ton **pseudo SmartStake** en note du paiement PayPal pour recevoir ton **code VIP**.")
+
+    if st.session_state.get("is_pro"):
+        st.success("✅ Ton statut **SmartStake Pro** est déjà actif sur ce profil !")
+        return
+
     code_saisi = st.text_input("🔑 Déjà réglé ? Entre ton code d'activation VIP :")
-    vip_secret = st.secrets.get("VIP_CODE", "SMART2026")
+    vip_secret = str(st.secrets.get("VIP_CODE", "SMART2026")).strip().upper()
+    
     if st.button("✅ Débloquer mon accès Pro", use_container_width=True):
-        if code_saisi.strip() == vip_secret:
+        if st.session_state.get("user_id", "Invite") == "Invite":
+            st.warning("⚠️ Ouvre d'abord **👤 Mon Espace Parieur** en haut de la page pour enregistrer ton propre pseudo avant d'activer ton code.")
+        elif code_saisi.strip().upper() == vip_secret:
             st.session_state.is_pro = True
             user_data["is_pro"] = True
             db[st.session_state.user_id] = user_data
             save_db(db)
-            st.success("🎉 Accès SmartStake Pro activé à vie sur ton profil !")
+            st.success("🎉 Accès SmartStake Pro activé sur ton profil !")
             st.rerun()
         else:
             st.error("❌ Code invalide. Vérifie le code reçu après ton paiement PayPal.")
