@@ -1,11 +1,12 @@
 import pandas as pd
+import numpy as np
+from scipy.optimize import minimize
 import requests, json, os, urllib3, math, base64, io
 import streamlit as st
 
 urllib3.disable_warnings()
 
-# ⚠️ Vérifie que 'smartstake-app' correspond bien au nom exact de ton dépôt GitHub
-REPO_NAME = "smartstake-app"
+REPO_NAME = "Bankroll-and-bet-manager"
 DB_FILE = "smartstake_users.json"
 GH_API = f"https://github.com{REPO_NAME}/contents/{DB_FILE}"
 
@@ -96,7 +97,6 @@ def fetch_matches(codes):
     except Exception as e:
         err_api = str(e)
 
-    # Secours sur fichier CSV local si l'API échoue
     if csv_code and os.path.exists(f"{csv_code}.csv"):
         try:
             df = pd.read_csv(f"{csv_code}.csv")
@@ -145,6 +145,99 @@ def calc_v2(df, eq1, eq2):
         l2
     )
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def fit_dixon_coles(df_hash, teams, home_idx, away_idx, hg, ag, weights):
+    n_teams = len(teams)
+
+    def rho_correction(x, y, l1, l2, rho):
+        if x == 0 and y == 0:
+            return max(0.01, 1.0 - (l1 * l2 * rho))
+        elif x == 0 and y == 1:
+            return max(0.01, 1.0 + (l1 * rho))
+        elif x == 1 and y == 0:
+            return max(0.01, 1.0 + (l2 * rho))
+        elif x == 1 and y == 1:
+            return max(0.01, 1.0 - rho)
+        return 1.0
+
+    def loss_func(params):
+        att = params[:n_teams]
+        defn = params[n_teams:2*n_teams]
+        home_adv = params[2*n_teams]
+        rho = params[2*n_teams + 1]
+
+        att = att - np.mean(att)
+
+        l1 = np.exp(att[home_idx] + defn[away_idx] + home_adv)
+        l2 = np.exp(att[away_idx] + defn[home_idx])
+
+        ll = weights * (hg * np.log(l1 + 1e-9) - l1 + ag * np.log(l2 + 1e-9) - l2)
+        corr = np.array([rho_correction(int(x), int(y), a, b, rho) for x, y, a, b in zip(hg, ag, l1, l2)])
+        ll += weights * np.log(corr)
+
+        reg = 0.05 * (np.sum(att**2) + np.sum(defn**2))
+        return -np.sum(ll) + reg
+
+    init_params = np.zeros(2 * n_teams + 2)
+    init_params[2 * n_teams] = 0.25
+    init_params[2 * n_teams + 1] = -0.05
+
+    bounds = [(-2.5, 2.5)] * (2 * n_teams) + [(-0.5, 1.0), (-0.3, 0.3)]
+    res = minimize(loss_func, init_params, method="L-BFGS-B", bounds=bounds, options={"maxiter": 120})
+
+    p = res.x
+    att = p[:n_teams] - np.mean(p[:n_teams])
+    defn = p[n_teams:2*n_teams]
+    return dict(zip(teams, att)), dict(zip(teams, defn)), float(p[2*n_teams]), float(p[2*n_teams + 1])
+
+def calc_v3_dixon_coles(df, eq1, eq2):
+    sub = df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']).tail(250).reset_index(drop=True)
+    if len(sub) < 20 or eq1 not in sub['HomeTeam'].values or eq2 not in sub['AwayTeam'].values:
+        return calc_v2(df, eq1, eq2)
+
+    teams = sorted(list(set(sub['HomeTeam']).union(set(sub['AwayTeam']))))
+    t_map = {t: i for i, t in enumerate(teams)}
+
+    home_idx = sub['HomeTeam'].map(t_map).values
+    away_idx = sub['AwayTeam'].map(t_map).values
+    hg = sub['FTHG'].astype(float).values
+    ag = sub['FTAG'].astype(float).values
+
+    n = len(sub)
+    weights = np.exp(-0.006 * np.arange(n - 1, -1, -1))
+    df_hash = f"{n}_{sub.iloc[-1]['HomeTeam']}_{sub.iloc[-1]['AwayTeam']}_{hg[-1]}_{ag[-1]}"
+
+    att, defn, home_adv, rho = fit_dixon_coles(df_hash, teams, home_idx, away_idx, hg, ag, weights)
+
+    l1 = max(0.25, math.exp(att[eq1] + defn[eq2] + home_adv))
+    l2 = max(0.25, math.exp(att[eq2] + defn[eq1]))
+
+    p_v, p_n, p_d = 0.0, 0.0, 0.0
+    for x in range(8):
+        px = (math.exp(-l1) * (l1 ** x)) / math.factorial(x)
+        for y in range(8):
+            py = (math.exp(-l2) * (l2 ** y)) / math.factorial(y)
+            tau = 1.0
+            if x == 0 and y == 0:
+                tau = max(0.01, 1.0 - l1 * l2 * rho)
+            elif x == 0 and y == 1:
+                tau = max(0.01, 1.0 + l1 * rho)
+            elif x == 1 and y == 0:
+                tau = max(0.01, 1.0 + l2 * rho)
+            elif x == 1 and y == 1:
+                tau = max(0.01, 1.0 - rho)
+
+            prob = px * py * tau
+            if x > y:
+                p_v += prob
+            elif x == y:
+                p_n += prob
+            else:
+                p_d += prob
+
+    tot = max(0.001, p_v + p_n + p_d)
+    return (p_v / tot) * 100.0, (p_n / tot) * 100.0, (p_d / tot) * 100.0, l1, l2
+
 def poisson_score(l1, l2, g1, g2):
     p1 = (math.exp(-l1) * (l1 ** g1)) / math.factorial(g1)
     p2 = (math.exp(-l2) * (l2 ** g2)) / math.factorial(g2)
@@ -169,63 +262,4 @@ def check_results(paris):
         m = df[(df["HomeTeam"] == eq1) & (df["AwayTeam"] == eq2)].tail(1)
         if m.empty:
             continue
-        hg = int(m["FTHG"].values.item())
-        ag = int(m["FTAG"].values.item())
-        ftr = str(m["FTR"].values.item())
-        ch = p.get("Choix", "")
-        if ch.startswith("Score "):
-            p["Statut"] = "✅ Gagné" if ch == f"Score {hg}-{ag}" else "❌ Perdu"
-        elif ch == "Match Nul":
-            p["Statut"] = "✅ Gagné" if ftr == "D" else "❌ Perdu"
-        elif "(DNB)" in ch:
-            p["Statut"] = "✅ Gagné" if ((eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")) else ("🔄 Remboursé" if ftr == "D" else "❌ Perdu")
-        else:
-            p["Statut"] = "✅ Gagné" if ((eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")) else "❌ Perdu"
-        maj += 1
-    return maj
-
-def run_financial_backtest(csv_code, saison="2425", cap_init=100.0, risque=5.0, use_dnb=True):
-    url = f"https://football-data.co.uk{saison}/{csv_code}.csv"
-    try:
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-        if r.status_code != 200:
-            return None
-        df = pd.read_csv(io.StringIO(r.text)).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR', 'B365H', 'B365D', 'B365A']).reset_index(drop=True)
-    except Exception:
-        return None
-    if len(df) < 40:
-        return None
-    cap, mise_tot, paris, gagnes = cap_init, 0.0, 0, 0
-    for i in range(35, len(df)):
-        row = df.iloc[i]
-        t3v, t3n, t3d, _, _ = calc_v2(df.iloc[:i], row["HomeTeam"], row["AwayTeam"])
-        tot = max(1.0, t3v + t3n + t3d)
-        c1, cn, c2, ftr = float(row["B365H"]), float(row["B365D"]), float(row["B365A"]), row["FTR"]
-        cands = [
-            ("H", (1 + t3d / t3v) if use_dnb else tot / t3v, (c1 * (cn - 1) / cn) if use_dnb else c1),
-            ("A", (1 + t3v / t3d) if use_dnb else tot / t3d, (c2 * (cn - 1) / cn) if use_dnb else c2)
-        ]
-        cmin, cmax = (1.90, 3.50) if use_dnb else (2.00, 5.00)
-        for side, ct, cr in cands:
-            if cr > ct and cmin <= cr <= cmax and cap > 1.0:
-                obj = (cap * (risque / 100.0)) * (cr / 2.0)
-                mise = min(cap, obj / (cr - 1.0))
-                paris += 1
-                mise_tot += mise
-                if ftr == side:
-                    cap += mise * (cr - 1.0)
-                    gagnes += 1
-                elif use_dnb and ftr == "D":
-                    gagnes += 1
-                else:
-                    cap -= mise
-                break
-    roi = round(((cap - cap_init) / max(1.0, mise_tot)) * 100, 1)
-    return {
-        "Matchs": len(df) - 35,
-        "Paris": paris,
-        "Réussite (%)": round(gagnes * 100 / max(1, paris), 1),
-        "Finale (€)": round(cap, 2),
-        "ROI (%)": roi
-        }
-        
+    
