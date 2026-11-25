@@ -6,10 +6,9 @@ DB_FILE = "smartstake_users.json"
 GH_API = "".join(["ht", "tps:", "//", "api.git", "h", "ub.", "com/repos/tonybillaut-tech/", REPO_NAME, "/contents/", DB_FILE])
 
 GH_TOKEN = st.secrets.get("GH_TOKEN", "")
-DEFAULT_SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRudmpqenlzc3lleXZpcHFsdHdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU1Njk4NTYsImV4cCI6MjExMTE0NTg1Nn0.9VXz2mIHj-jcBfZvZWoTBIF0zSsVb3aDXoKP2P0Q7F8"
-SUPABASE_ID = st.secrets.get("SUPABASE_ID", "tnvjjzyssyeyvipqltws").strip()
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", DEFAULT_SB_KEY).strip() or DEFAULT_SB_KEY
-SUPABASE_URL = "".join(["ht", "tps:", "//", SUPABASE_ID, ".supa", "base.", "co"]) if SUPABASE_ID else ""
+SUPABASE_ID = "tnvjjzyssyeyvipqltws"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRudmpqenlzc3lleXZpcHFsdHdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU1Njk4NTYsImV4cCI6MjExMTE0NTg1Nn0.9VXz2mIHj-jcBfZvZWoTBIF0zSsVb3aDXoKP2P0Q7F8"
+SUPABASE_URL = "".join(["ht", "tps:", "//", SUPABASE_ID, ".supa", "base.", "co"])
 
 def hash_pin(pin: str) -> str:
     if not pin:
@@ -17,88 +16,50 @@ def hash_pin(pin: str) -> str:
     return hashlib.sha256(f"smartstake_salt_{pin.strip()}".encode("utf-8")).hexdigest()
 
 def _sb_headers():
-    h = {
+    return {
         "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates"
     }
-    if SUPABASE_KEY.startswith("eyJ"):
-        h["Authorization"] = f"Bearer {SUPABASE_KEY}"
-    return h
 
 def load_db():
-    if SUPABASE_URL and SUPABASE_KEY:
-        try:
-            url = f"{SUPABASE_URL}/rest/v1/smartstake_users?select=*"
-            r = requests.get(url, headers=_sb_headers(), timeout=8)
-            if r.status_code == 200:
-                return {
-                    row["user_id"]: {
-                        "capital_depart": row.get("capital_depart", 20.0),
-                        "paris": row.get("paris", []),
-                        "is_pro": row.get("is_pro", False),
-                        "essai": row.get("essai", 0),
-                        "pin_hash": row.get("pin_hash", "")
-                    }
-                    for row in r.json()
-                }
-        except Exception:
-            pass
-
-    if GH_TOKEN:
-        try:
-            r = requests.get(GH_API, headers={"Authorization": f"token {GH_TOKEN}"}, timeout=10)
-            if r.status_code == 200:
-                return json.loads(base64.b64decode(r.json()["content"]).decode("utf-8"))
-        except Exception:
-            pass
     try:
-        if os.path.exists(DB_FILE):
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+        url = f"{SUPABASE_URL}/rest/v1/smartstake_users?select=*"
+        r = requests.get(url, headers=_sb_headers(), timeout=8)
+        if r.status_code == 200:
+            return {
+                row["user_id"]: {
+                    "capital_depart": row.get("capital_depart", 20.0),
+                    "paris": row.get("paris", []),
+                    "is_pro": row.get("is_pro", False),
+                    "essai": row.get("essai", 0),
+                    "pin_hash": row.get("pin_hash", "")
+                }
+                for row in r.json()
+            }
     except Exception:
         pass
     return {}
 
 def save_db(data):
-    if SUPABASE_URL and SUPABASE_KEY:
-        try:
-            url = f"{SUPABASE_URL}/rest/v1/smartstake_users"
-            payload = [
-                {
-                    "user_id": uid,
-                    "capital_depart": float(udata.get("capital_depart", 20.0)),
-                    "paris": udata.get("paris", []),
-                    "is_pro": bool(udata.get("is_pro", False)),
-                    "essai": int(udata.get("essai", 0)),
-                    "pin_hash": str(udata.get("pin_hash", ""))
-                }
-                for uid, udata in data.items()
-            ]
-            if payload:
-                r = requests.post(url, headers=_sb_headers(), json=payload, timeout=8)
-                if r.status_code in (200, 201):
-                    return
-        except Exception:
-            pass
-
     try:
-        with open(DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        url = f"{SUPABASE_URL}/rest/v1/smartstake_users"
+        payload = [
+            {
+                "user_id": uid,
+                "capital_depart": float(udata.get("capital_depart", 20.0)),
+                "paris": udata.get("paris", []),
+                "is_pro": bool(udata.get("is_pro", False)),
+                "essai": int(udata.get("essai", 0)),
+                "pin_hash": str(udata.get("pin_hash", ""))
+            }
+            for uid, udata in data.items()
+        ]
+        if payload:
+            requests.post(url, headers=_sb_headers(), json=payload, timeout=8)
     except Exception:
         pass
-    if GH_TOKEN:
-        try:
-            hdrs = {"Authorization": f"token {GH_TOKEN}"}
-            g = requests.get(GH_API, headers=hdrs, timeout=10)
-            sha = g.json().get("sha") if g.status_code == 200 else None
-            b64 = base64.b64encode(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")).decode("utf-8")
-            payload = {"message": "Update bankroll", "content": b64}
-            if sha:
-                payload["sha"] = sha
-            requests.put(GH_API, headers=hdrs, json=payload, timeout=10)
-        except Exception:
-            pass
 
 def redeem_vip_code(code: str, user_id: str) -> bool:
     c_clean = code.strip().upper()
@@ -117,8 +78,8 @@ def redeem_vip_code(code: str, user_id: str) -> bool:
             else:
                 st.warning(f"Code '{c_clean}' introuvable.")
         else:
-            st.warning(f"HTTP {r.status_code} — Active 'Legacy API keys' dans Supabase (Settings > API Keys).")
+            st.warning(f"Erreur Supabase : HTTP {r.status_code}")
     except Exception as e:
         st.warning(f"Détail : {e}")
     return False
-    
+                                    
