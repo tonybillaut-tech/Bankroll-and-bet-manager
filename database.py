@@ -6,8 +6,8 @@ DB_FILE = "smartstake_users.json"
 GH_API = "".join(["ht", "tps:", "//", "api.git", "h", "ub.", "com/repos/tonybillaut-tech/", REPO_NAME, "/contents/", DB_FILE])
 
 GH_TOKEN = st.secrets.get("GH_TOKEN", "")
-SUPABASE_ID = st.secrets.get("SUPABASE_ID", "tnvjjzyssyeyvipqltws").strip()
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "COLLE_TA_CLE_SB_PUBLISHABLE_ICI").strip()
+SUPABASE_ID = "tnvjjzyssyeyvipqltws"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRudmpqenlzc3lleXZpcHFsdHdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU1Njk4NTYsImV4cCI6MjExMTE0NTg1Nn0.9VXz2mIHj-jcBfZvZWoTBIF0zSsVb3aDXoKP2P0Q7F8"
 SUPABASE_URL = "".join(["ht", "tps:", "//", SUPABASE_ID, ".supa", "base.", "co"])
 
 def hash_pin(pin: str) -> str:
@@ -16,14 +16,12 @@ def hash_pin(pin: str) -> str:
     return hashlib.sha256(f"smartstake_salt_{pin.strip()}".encode("utf-8")).hexdigest()
 
 def _sb_headers():
-    h = {
+    return {
         "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates"
     }
-    if SUPABASE_KEY.startswith("eyJ"):
-        h["Authorization"] = f"Bearer {SUPABASE_KEY}"
-    return h
 
 def load_db():
     try:
