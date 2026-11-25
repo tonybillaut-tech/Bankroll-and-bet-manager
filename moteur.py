@@ -13,6 +13,9 @@ GH_API = "https://" + f"://github.com{REPO_NAME}/contents/{DB_FILE}"
 
 FD_TOKEN = st.secrets.get("FD_TOKEN", "d2193c7f2b1e47458dbed1b4e8c10732")
 GH_TOKEN = st.secrets.get("GH_TOKEN", "")
+SUPABASE_ID = st.secrets.get("SUPABASE_ID", "tnvjjzyssyeyvipqltws").strip()
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "").strip()
+SUPABASE_URL = "https://" + f"{SUPABASE_ID}.supabase.co" if SUPABASE_ID else ""
 
 CHAMPIONNATS = {
     "🇫🇷 Ligue 1": ("FL1", "F1"),
@@ -27,7 +30,33 @@ CHAMPIONNATS = {
     "🇪🇺 Ligue des Champions": ("CL", "CL")
 }
 
+def _sb_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates"
+    }
+
 def load_db():
+    if SUPABASE_URL and SUPABASE_KEY:
+        try:
+            url = f"{SUPABASE_URL}/rest/v1/smartstake_users?select=*"
+            r = requests.get(url, headers=_sb_headers(), timeout=8)
+            if r.status_code == 200:
+                rows = r.json()
+                return {
+                    row["user_id"]: {
+                        "capital_depart": row.get("capital_depart", 20.0),
+                        "paris": row.get("paris", []),
+                        "is_pro": row.get("is_pro", False),
+                        "essai": row.get("essai", 0)
+                    }
+                    for row in rows
+                }
+        except Exception:
+            pass
+
     if GH_TOKEN:
         try:
             r = requests.get(GH_API, headers={"Authorization": f"token {GH_TOKEN}"}, timeout=10)
@@ -44,6 +73,26 @@ def load_db():
     return {}
 
 def save_db(data):
+    if SUPABASE_URL and SUPABASE_KEY:
+        try:
+            url = f"{SUPABASE_URL}/rest/v1/smartstake_users"
+            payload = [
+                {
+                    "user_id": uid,
+                    "capital_depart": float(udata.get("capital_depart", 20.0)),
+                    "paris": udata.get("paris", []),
+                    "is_pro": bool(udata.get("is_pro", False)),
+                    "essai": int(udata.get("essai", 0))
+                }
+                for uid, udata in data.items()
+            ]
+            if payload:
+                r = requests.post(url, headers=_sb_headers(), json=payload, timeout=8)
+                if r.status_code in (200, 201):
+                    return
+        except Exception:
+            pass
+
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -208,171 +257,3 @@ def calc_v3_dixon_coles(df, eq1, eq2):
     weights = np.exp(-0.006 * np.arange(n - 1, -1, -1))
     df_hash = f"{n}_{sub.iloc[-1]['HomeTeam']}_{sub.iloc[-1]['AwayTeam']}_{hg[-1]}_{ag[-1]}"
 
-    att, defn, home_adv, rho = fit_dixon_coles(df_hash, teams, home_idx, away_idx, hg, ag, weights)
-
-    l1 = max(0.25, math.exp(att[eq1] + defn[eq2] + home_adv))
-    l2 = max(0.25, math.exp(att[eq2] + defn[eq1]))
-
-    p_v, p_n, p_d = 0.0, 0.0, 0.0
-    for x in range(8):
-        px = (math.exp(-l1) * (l1 ** x)) / math.factorial(x)
-        for y in range(8):
-            py = (math.exp(-l2) * (l2 ** y)) / math.factorial(y)
-            tau = 1.0
-            if x == 0 and y == 0:
-                tau = max(0.01, 1.0 - l1 * l2 * rho)
-            elif x == 0 and y == 1:
-                tau = max(0.01, 1.0 + l1 * rho)
-            elif x == 1 and y == 0:
-                tau = max(0.01, 1.0 + l2 * rho)
-            elif x == 1 and y == 1:
-                tau = max(0.01, 1.0 - rho)
-
-            prob = px * py * tau
-            if x > y:
-                p_v += prob
-            elif x == y:
-                p_n += prob
-            else:
-                p_d += prob
-
-    tot = max(0.001, p_v + p_n + p_d)
-    return (p_v / tot) * 100.0, (p_n / tot) * 100.0, (p_d / tot) * 100.0, l1, l2
-@st.cache_data(ttl=3600, show_spinner=False)
-def train_meta_model(df_hash, df_sub):
-    X, y = [], []
-    label_map = {"H": 0, "D": 1, "A": 2}
-    start = max(25, len(df_sub) - 120)
-    for i in range(start, len(df_sub)):
-        row = df_sub.iloc[i]
-        ftr = row["FTR"]
-        if ftr not in label_map:
-            continue
-        hist = df_sub.iloc[:i]
-        v2_1, v2_n, v2_2, _, _ = calc_v2(hist, row["HomeTeam"], row["AwayTeam"])
-        tot2 = max(1.0, v2_1 + v2_n + v2_2)
-        p2 = [v2_1 / tot2, v2_n / tot2, v2_2 / tot2]
-
-        sub_i = (i // 10) * 10
-        v3_1, v3_n, v3_2, l1_3, l2_3 = calc_v3_dixon_coles(df_sub.iloc[:max(25, sub_i)], row["HomeTeam"], row["AwayTeam"])
-        p3 = [v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0]
-
-        feat = p2 + p3 + [p3[0] - p2[0], p3[2] - p2[2], l1_3 - l2_3]
-        X.append(feat)
-        y.append(label_map[ftr])
-
-    if len(set(y)) < 3 or len(X) < 30:
-        return None
-
-    clf = LogisticRegression(C=0.5, max_iter=300)
-    clf.fit(np.array(X), np.array(y))
-    return clf
-
-def calc_v4_meta(df, eq1, eq2):
-    sub = df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR', 'FTHG', 'FTAG']).tail(250).reset_index(drop=True)
-    v2_1, v2_n, v2_2, l1_2, l2_2 = calc_v2(sub, eq1, eq2)
-    v3_1, v3_n, v3_2, l1_3, l2_3 = calc_v3_dixon_coles(sub, eq1, eq2)
-
-    if len(sub) < 55:
-        return v3_1, v3_n, v3_2, l1_3, l2_3
-
-    df_hash = f"meta_{len(sub)}_{sub.iloc[-1]['HomeTeam']}_{sub.iloc[-1]['AwayTeam']}_{sub.iloc[-1]['FTHG']}"
-    clf = train_meta_model(df_hash, sub)
-    if clf is None:
-        return v3_1, v3_n, v3_2, l1_3, l2_3
-
-    tot2 = max(1.0, v2_1 + v2_n + v2_2)
-    p2 = [v2_1 / tot2, v2_n / tot2, v2_2 / tot2]
-    p3 = [v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0]
-    feat = np.array([p2 + p3 + [p3[0] - p2[0], p3[2] - p2[2], l1_3 - l2_3]])
-
-    probs = clf.predict_proba(feat)[0]
-    p_v = max(1.0, (0.8 * probs[0] + 0.2 * p3[0]) * 100.0)
-    p_n = max(1.0, (0.8 * probs[1] + 0.2 * p3[1]) * 100.0)
-    p_d = max(1.0, (0.8 * probs[2] + 0.2 * p3[2]) * 100.0)
-    return p_v, p_n, p_d, (0.75 * l1_3 + 0.25 * l1_2), (0.75 * l2_3 + 0.25 * l2_2)
-
-def poisson_score(l1, l2, g1, g2):
-    p1 = (math.exp(-l1) * (l1 ** g1)) / math.factorial(g1)
-    p2 = (math.exp(-l2) * (l2 ** g2)) / math.factorial(g2)
-    prob = max(0.001, p1 * p2)
-    return round(1.0 / prob, 2), round(prob * 100, 1)
-
-def check_results(paris):
-    maj = 0
-    codes = {p.get("Code") for p in paris if p.get("Statut") == "⏳ En cours" and p.get("Code")}
-    cache = {}
-    for c in codes:
-        df, _ = fetch_matches((c, ""))
-        if not df.empty:
-            cache[c] = df.tail(30)
-    for p in paris:
-        if p.get("Statut") != "⏳ En cours" or "-" not in p.get("Match", ""):
-            continue
-        eq1, eq2 = p["Match"].split("-", 1)
-        df = cache.get(p.get("Code"))
-        if df is None:
-            continue
-        m = df[(df["HomeTeam"] == eq1) & (df["AwayTeam"] == eq2)].tail(1)
-        if m.empty:
-            continue
-        hg = int(m["FTHG"].values.item())
-        ag = int(m["FTAG"].values.item())
-        ftr = str(m["FTR"].values.item())
-        ch = p.get("Choix", "")
-        if ch.startswith("Score "):
-            p["Statut"] = "✅ Gagné" if ch == f"Score {hg}-{ag}" else "❌ Perdu"
-        elif ch == "Match Nul":
-            p["Statut"] = "✅ Gagné" if ftr == "D" else "❌ Perdu"
-        elif "(DNB)" in ch:
-            p["Statut"] = "✅ Gagné" if ((eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")) else ("🔄 Remboursé" if ftr == "D" else "❌ Perdu")
-        else:
-            p["Statut"] = "✅ Gagné" if ((eq1 in ch and ftr == "H") or (eq2 in ch and ftr == "A")) else "❌ Perdu"
-        maj += 1
-    return maj
-
-def run_financial_backtest(csv_code, saison="2425", cap_init=100.0, risque=5.0, use_dnb=True):
-    url = "https://" + "www.football-data.co.uk" + f"/mmz4281/{saison}/{csv_code}.csv"
-    try:
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-        if r.status_code != 200:
-            return None
-        df = pd.read_csv(io.StringIO(r.text)).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR', 'B365H', 'B365D', 'B365A']).reset_index(drop=True)
-    except Exception:
-        return None
-    if len(df) < 40:
-        return None
-    cap, mise_tot, paris, gagnes = cap_init, 0.0, 0, 0
-    for i in range(35, len(df)):
-        row = df.iloc[i]
-        t3v, t3n, t3d, _, _ = calc_v2(df.iloc[:i], row["HomeTeam"], row["AwayTeam"])
-        tot = max(1.0, t3v + t3n + t3d)
-        c1, cn, c2, ftr = float(row["B365H"]), float(row["B365D"]), float(row["B365A"]), row["FTR"]
-        cands = [
-            ("H", (1 + t3d / t3v) if use_dnb else tot / t3v, (c1 * (cn - 1) / cn) if use_dnb else c1),
-            ("A", (1 + t3v / t3d) if use_dnb else tot / t3d, (c2 * (cn - 1) / cn) if use_dnb else c2)
-        ]
-        cmin, cmax = (1.90, 3.50) if use_dnb else (2.00, 5.00)
-        for side, ct, cr in cands:
-            if cr > ct and cmin <= cr <= cmax and cap > 1.0:
-                obj = (cap * (risque / 100.0)) * (cr / 2.0)
-                mise = min(cap, obj / (cr - 1.0))
-                paris += 1
-                mise_tot += mise
-                if ftr == side:
-                    cap += mise * (cr - 1.0)
-                    gagnes += 1
-                elif use_dnb and ftr == "D":
-                    gagnes += 1
-                else:
-                    cap -= mise
-                break
-    roi = round(((cap - cap_init) / max(1.0, mise_tot)) * 100, 1)
-    return {
-        "Matchs": len(df) - 35,
-        "Paris": paris,
-        "Réussite (%)": round(gagnes * 100 / max(1, paris), 1),
-        "Finale (€)": round(cap, 2),
-        "ROI (%)": roi
-                  }
-        
