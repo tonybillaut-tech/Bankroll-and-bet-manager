@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from scipy.optimize import minimize
+from sklearn.linear_model import LogisticRegression
 import requests, json, os, urllib3, math, base64, io
 import streamlit as st
 
@@ -238,28 +239,24 @@ def calc_v3_dixon_coles(df, eq1, eq2):
     tot = max(0.001, p_v + p_n + p_d)
     return (p_v / tot) * 100.0, (p_n / tot) * 100.0, (p_d / tot) * 100.0, l1, l2
 
-def poisson_score(l1, l2, g1, g2):
-    p1 = (math.exp(-l1) * (l1 ** g1)) / math.factorial(g1)
-    p2 = (math.exp(-l2) * (l2 ** g2)) / math.factorial(g2)
-    prob = max(0.001, p1 * p2)
-    return round(1.0 / prob, 2), round(prob * 100, 1)
+@st.cache_data(ttl=3600, show_spinner=False)
+def train_meta_model(df_hash, df_sub):
+    X, y = [], []
+    label_map = {"H": 0, "D": 1, "A": 2}
+    # Apprentissage sur les 120 derniers matchs disponibles
+    start = max(25, len(df_sub) - 120)
+    for i in range(start, len(df_sub)):
+        row = df_sub.iloc[i]
+        ftr = row["FTR"]
+        if ftr not in label_map:
+            continue
+        hist = df_sub.iloc[:i]
+        v2_1, v2_n, v2_2, l1_2, l2_2 = calc_v2(hist, row["HomeTeam"], row["AwayTeam"])
+        tot2 = max(1.0, v2_1 + v2_n + v2_2)
+        p2 = [v2_1 / tot2, v2_n / tot2, v2_2 / tot2]
 
-def check_results(paris):
-    maj = 0
-    codes = {p.get("Code") for p in paris if p.get("Statut") == "⏳ En cours" and p.get("Code")}
-    cache = {}
-    for c in codes:
-        df, _ = fetch_matches((c, ""))
-        if not df.empty:
-            cache[c] = df.tail(30)
-    for p in paris:
-        if p.get("Statut") != "⏳ En cours" or "-" not in p.get("Match", ""):
-            continue
-        eq1, eq2 = p["Match"].split("-", 1)
-        df = cache.get(p.get("Code"))
-        if df is None:
-            continue
-        m = df[(df["HomeTeam"] == eq1) & (df["AwayTeam"] == eq2)].tail(1)
-        if m.empty:
-            continue
-                    
+        sub_i = (i // 10) * 10
+        v3_1, v3_n, v3_2, l1_3, l2_3 = calc_v3_dixon_coles(df_sub.iloc[:max(25, sub_i)], row["HomeTeam"], row["AwayTeam"])
+        p3 = [v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0]
+
+                
