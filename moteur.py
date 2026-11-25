@@ -2,20 +2,12 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import minimize
 from sklearn.linear_model import LogisticRegression
-import requests, json, os, urllib3, math, base64, io
+import requests, os, urllib3, math, io
 import streamlit as st
+from database import load_db, save_db
 
 urllib3.disable_warnings()
-
-REPO_NAME = "Bankroll-and-bet-manager"
-DB_FILE = "smartstake_users.json"
-GH_API = "https://" + f"://github.com{REPO_NAME}/contents/{DB_FILE}"
-
 FD_TOKEN = st.secrets.get("FD_TOKEN", "d2193c7f2b1e47458dbed1b4e8c10732")
-GH_TOKEN = st.secrets.get("GH_TOKEN", "")
-SUPABASE_ID = st.secrets.get("SUPABASE_ID", "tnvjjzyssyeyvipqltws").strip()
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "").strip()
-SUPABASE_URL = "https://" + f"{SUPABASE_ID}.supabase.co" if SUPABASE_ID else ""
 
 CHAMPIONNATS = {
     "🇫🇷 Ligue 1": ("FL1", "F1"),
@@ -29,87 +21,6 @@ CHAMPIONNATS = {
     "🇧🇷 Brasileirão": ("BSA", "BSA"),
     "🇪🇺 Ligue des Champions": ("CL", "CL")
 }
-
-def _sb_headers():
-    return {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates"
-    }
-
-def load_db():
-    if SUPABASE_URL and SUPABASE_KEY:
-        try:
-            url = f"{SUPABASE_URL}/rest/v1/smartstake_users?select=*"
-            r = requests.get(url, headers=_sb_headers(), timeout=8)
-            if r.status_code == 200:
-                rows = r.json()
-                return {
-                    row["user_id"]: {
-                        "capital_depart": row.get("capital_depart", 20.0),
-                        "paris": row.get("paris", []),
-                        "is_pro": row.get("is_pro", False),
-                        "essai": row.get("essai", 0)
-                    }
-                    for row in rows
-                }
-        except Exception:
-            pass
-
-    if GH_TOKEN:
-        try:
-            r = requests.get(GH_API, headers={"Authorization": f"token {GH_TOKEN}"}, timeout=10)
-            if r.status_code == 200:
-                return json.loads(base64.b64decode(r.json()["content"]).decode("utf-8"))
-        except Exception:
-            pass
-    try:
-        if os.path.exists(DB_FILE):
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {}
-
-def save_db(data):
-    if SUPABASE_URL and SUPABASE_KEY:
-        try:
-            url = f"{SUPABASE_URL}/rest/v1/smartstake_users"
-            payload = [
-                {
-                    "user_id": uid,
-                    "capital_depart": float(udata.get("capital_depart", 20.0)),
-                    "paris": udata.get("paris", []),
-                    "is_pro": bool(udata.get("is_pro", False)),
-                    "essai": int(udata.get("essai", 0))
-                }
-                for uid, udata in data.items()
-            ]
-            if payload:
-                r = requests.post(url, headers=_sb_headers(), json=payload, timeout=8)
-                if r.status_code in (200, 201):
-                    return
-        except Exception:
-            pass
-
-    try:
-        with open(DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-    if GH_TOKEN:
-        try:
-            hdrs = {"Authorization": f"token {GH_TOKEN}"}
-            g = requests.get(GH_API, headers=hdrs, timeout=10)
-            sha = g.json().get("sha") if g.status_code == 200 else None
-            b64 = base64.b64encode(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")).decode("utf-8")
-            payload = {"message": "Update bankroll", "content": b64}
-            if sha:
-                payload["sha"] = sha
-            requests.put(GH_API, headers=hdrs, json=payload, timeout=10)
-        except Exception:
-            pass
 
 def get_cap(u):
     cap = float(u.get("capital_depart", 20.0))
@@ -257,3 +168,93 @@ def calc_v3_dixon_coles(df, eq1, eq2):
     weights = np.exp(-0.006 * np.arange(n - 1, -1, -1))
     df_hash = f"{n}_{sub.iloc[-1]['HomeTeam']}_{sub.iloc[-1]['AwayTeam']}_{hg[-1]}_{ag[-1]}"
 
+    att, defn, home_adv, rho = fit_dixon_coles(df_hash, teams, home_idx, away_idx, hg, ag, weights)
+
+    l1 = max(0.25, math.exp(att[eq1] + defn[eq2] + home_adv))
+    l2 = max(0.25, math.exp(att[eq2] + defn[eq1]))
+
+    p_v, p_n, p_d = 0.0, 0.0, 0.0
+    for x in range(8):
+        px = (math.exp(-l1) * (l1 ** x)) / math.factorial(x)
+        for y in range(8):
+            py = (math.exp(-l2) * (l2 ** y)) / math.factorial(y)
+            tau = 1.0
+            if x == 0 and y == 0:
+                tau = max(0.01, 1.0 - l1 * l2 * rho)
+            elif x == 0 and y == 1:
+                tau = max(0.01, 1.0 + l1 * rho)
+            elif x == 1 and y == 0:
+                tau = max(0.01, 1.0 + l2 * rho)
+            elif x == 1 and y == 1:
+                tau = max(0.01, 1.0 - rho)
+
+            prob = px * py * tau
+            if x > y:
+                p_v += prob
+            elif x == y:
+                p_n += prob
+            else:
+                p_d += prob
+
+    tot = max(0.001, p_v + p_n + p_d)
+    return (p_v / tot) * 100.0, (p_n / tot) * 100.0, (p_d / tot) * 100.0, l1, l2
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def train_meta_model(df_hash, df_sub):
+    X, y = [], []
+    label_map = {"H": 0, "D": 1, "A": 2}
+    start = max(25, len(df_sub) - 120)
+    for i in range(start, len(df_sub)):
+        row = df_sub.iloc[i]
+        ftr = row["FTR"]
+        if ftr not in label_map:
+            continue
+        hist = df_sub.iloc[:i]
+        v2_1, v2_n, v2_2, _, _ = calc_v2(hist, row["HomeTeam"], row["AwayTeam"])
+        tot2 = max(1.0, v2_1 + v2_n + v2_2)
+        p2 = [v2_1 / tot2, v2_n / tot2, v2_2 / tot2]
+
+        sub_i = (i // 10) * 10
+        v3_1, v3_n, v3_2, l1_3, l2_3 = calc_v3_dixon_coles(df_sub.iloc[:max(25, sub_i)], row["HomeTeam"], row["AwayTeam"])
+        p3 = [v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0]
+
+        feat = p2 + p3 + [p3 - p2, p3 - p2, p3 - p2, l1_3 - l2_3]
+        X.append(feat)
+        y.append(label_map[ftr])
+
+    if len(set(y)) < 3 or len(X) < 30:
+        return None
+
+    clf = LogisticRegression(C=0.5, max_iter=300)
+    clf.fit(np.array(X), np.array(y))
+    return clf
+
+def calc_v4_meta(df, eq1, eq2):
+    sub = df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR', 'FTHG', 'FTAG']).tail(250).reset_index(drop=True)
+    v2_1, v2_n, v2_2, l1_2, l2_2 = calc_v2(sub, eq1, eq2)
+    v3_1, v3_n, v3_2, l1_3, l2_3 = calc_v3_dixon_coles(sub, eq1, eq2)
+
+    if len(sub) < 55:
+        return v3_1, v3_n, v3_2, l1_3, l2_3
+
+    df_hash = f"meta_{len(sub)}_{sub.iloc[-1]['HomeTeam']}_{sub.iloc[-1]['AwayTeam']}_{sub.iloc[-1]['FTHG']}"
+    clf = train_meta_model(df_hash, sub)
+    if clf is None:
+        return v3_1, v3_n, v3_2, l1_3, l2_3
+
+    tot2 = max(1.0, v2_1 + v2_n + v2_2)
+    p2 = [v2_1 / tot2, v2_n / tot2, v2_2 / tot2]
+    p3 = [v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0]
+    feat = np.array([p2 + p3 + [p3 - p2, p3 - p2, p3 - p2, l1_3 - l2_3]])
+
+    probs = clf.predict_proba(feat)
+    p_v = max(1.0, (0.8 * probs + 0.2 * p3) * 100.0)
+    p_n = max(1.0, (0.8 * probs + 0.2 * p3) * 100.0)
+    p_d = max(1.0, (0.8 * probs + 0.2 * p3) * 100.0)
+    return p_v, p_n, p_d, (0.75 * l1_3 + 0.25 * l1_2), (0.75 * l2_3 + 0.25 * l2_2)
+
+def poisson_score(l1, l2, g1, g2):
+    p1 = (math.exp(-l1) * (l1 ** g1)) / math.factorial(g1)
+    p2 = (math.exp(-l2) * (l2 ** g2)) / math.factorial(g2)
+    prob = max(0.001, p1 * p2)
+                    
