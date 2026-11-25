@@ -203,13 +203,13 @@ def train_meta_model(df_hash, df_sub):
         hist = df_sub.iloc[:i]
         v2_1, v2_n, v2_2, _, _ = calc_v2(hist, row["HomeTeam"], row["AwayTeam"])
         tot2 = max(1.0, v2_1 + v2_n + v2_2)
-        p2 = [v2_1 / tot2, v2_n / tot2, v2_2 / tot2]
+        p2 = np.array([v2_1 / tot2, v2_n / tot2, v2_2 / tot2])
 
         sub_i = (i // 10) * 10
         v3_1, v3_n, v3_2, l1_3, l2_3 = calc_v3_dixon_coles(df_sub.iloc[:max(25, sub_i)], row["HomeTeam"], row["AwayTeam"])
-        p3 = [v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0]
+        p3 = np.array([v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0])
 
-        feat = p2 + p3 + [p3 - p2, p3 - p2, p3 - p2, l1_3 - l2_3]
+        feat = np.concatenate([p2, p3, p3 - p2, [l1_3 - l2_3]])
         X.append(feat)
         y.append(label_map[ftr])
 
@@ -234,14 +234,13 @@ def calc_v4_meta(df, eq1, eq2):
         return v3_1, v3_n, v3_2, l1_3, l2_3
 
     tot2 = max(1.0, v2_1 + v2_n + v2_2)
-    p2 = [v2_1 / tot2, v2_n / tot2, v2_2 / tot2]
-    p3 = [v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0]
-    feat = np.array([p2 + p3 + [p3 - p2, p3 - p2, p3 - p2, l1_3 - l2_3]])
+    p2 = np.array([v2_1 / tot2, v2_n / tot2, v2_2 / tot2])
+    p3 = np.array([v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0])
+    feat = np.concatenate([p2, p3, p3 - p2, [l1_3 - l2_3]]).reshape(1, -1)
 
-    probs = clf.predict_proba(feat)
-    p_v = max(1.0, (0.8 * probs + 0.2 * p3) * 100.0)
-    p_n = max(1.0, (0.8 * probs + 0.2 * p3) * 100.0)
-    p_d = max(1.0, (0.8 * probs + 0.2 * p3) * 100.0)
+    probs = clf.predict_proba(feat).flatten()
+    blend = np.maximum(1.0, (0.8 * probs + 0.2 * p3) * 100.0)
+    p_v, p_n, p_d = blend.tolist()
     return p_v, p_n, p_d, (0.75 * l1_3 + 0.25 * l1_2), (0.75 * l2_3 + 0.25 * l2_2)
 
 from tracker import get_cap, poisson_score, check_results
