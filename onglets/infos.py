@@ -19,19 +19,28 @@ def render_pro(db, user_data):
         st.success("✅ Ton statut **SmartStake Pro ✨** est déjà actif sur ce profil !")
         return
 
-    pay_link = st.secrets.get("PAY_LINK", "")
-    if pay_link:
-        st.link_button("💳 Régler 29,90 €/an & Débloquer PRO instantanément", pay_link, type="primary", use_container_width=True)
-        st.caption("⚡ *Après validation du paiement, tu es redirigé automatiquement et ton compte passe en PRO dans la seconde.*")
-    else:
-        pp_url = "".join(["ht", "tps:", "//", "www.", "pay", "pal.", "com/", "paypalme/", "TonyBillaut/", "29.90"])
-        st.link_button("💳 Régler 29,90 €/an via PayPal (`@TonyBillaut`)", pp_url, type="primary", use_container_width=True)
-        st.info("💡 **Astuce mobile :** Indique bien ton **pseudo SmartStake** en note du paiement PayPal pour recevoir ton **code personnel à usage unique**.")
+    is_android = (st.query_params.get("platform", "web").lower() == "android")
+    uid = st.session_state.get("user_id", "Invite")
 
-    code_saisi = st.text_input("🔑 Déjà réglé ? Entre ton code personnel à usage unique :")
+    if is_android:
+        if uid == "Invite":
+            st.warning("🔐 **Connecte-toi d'abord ci-dessus (Pseudo + Code PIN)** afin que ton abonnement Google Play soit lié à ton compte à vie.")
+        else:
+            st.link_button("▶️ S'abonner via Google Play (29,90 €/an)", f"playbilling://subscribe/smartstake_pro_yearly?user={uid}", type="primary", use_container_width=True)
+            st.caption("🔒 *Paiement sécurisé géré par Google Play. Résiliable à tout moment depuis tes abonnements Google Play.*")
+    else:
+        pay_link = st.secrets.get("PAY_LINK", "")
+        if pay_link:
+            st.link_button("💳 Régler 29,90 €/an & Débloquer PRO instantanément", pay_link, type="primary", use_container_width=True)
+            st.caption("⚡ *Après validation du paiement, tu es redirigé automatiquement et ton compte passe en PRO dans la seconde.*")
+        else:
+            pp_url = "".join(["ht", "tps:", "//", "www.", "pay", "pal.", "com/", "paypalme/", "TonyBillaut/", "29.90"])
+            st.link_button("💳 Régler 29,90 €/an via PayPal (`@TonyBillaut`)", pp_url, type="primary", use_container_width=True)
+            st.info("💡 **Astuce mobile :** Indique bien ton **pseudo SmartStake** en note du paiement PayPal pour recevoir ton **code personnel à usage unique**.")
+
+    code_saisi = st.text_input("🔑 Déjà un code d'activation ? Entre ton code personnel :")
 
     if st.button("✅ Débloquer mon accès Pro", use_container_width=True):
-        uid = st.session_state.get("user_id", "Invite")
         if uid == "Invite":
             st.warning("⚠️ Ouvre d'abord **👤 Espace Parieur Sécurisé** en haut de la page pour enregistrer ton propre pseudo et ton code PIN avant d'activer ton code.")
         elif redeem_vip_code(code_saisi, uid):
@@ -42,5 +51,5 @@ def render_pro(db, user_data):
             st.success("🎉 Accès SmartStake Pro activé sur ton profil ! (Code validé et verrouillé)")
             st.rerun()
         else:
-            st.error("❌ Code invalide ou déjà utilisé. Vérifie le code reçu après ton paiement.")
+            st.error("❌ Code invalide ou déjà utilisé.")
             
