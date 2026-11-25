@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import io
+import io, urllib.parse
 from moteur import load_db, save_db, get_cap, check_results
 from database import hash_pin
 from onglets.analyse import render_analyse
@@ -112,5 +112,16 @@ with tab_bt: render_backtest()
 with tab_tuto: render_guide()
 with tab_pro: render_pro(db, user_data)
 
+app_url = "https://" + "smartstake-app.streamlit.app/"
+msg_wa = urllib.parse.quote(f"⚽ Découvre SmartStake Football, un scanner IA de Value Bets & gestion de bankroll (3 analyses gratuites) : {app_url}")
+msg_tg = urllib.parse.quote("⚽ SmartStake Football — Scanner IA & Bankroll (3 essais offerts)")
+
+with st.expander("📲 Partager SmartStake avec un ami", expanded=False):
+    st.caption("Copie le lien en 1 clic ou envoie-le directement :")
+    st.code(app_url, language=None)
+    p1, p2 = st.columns(2)
+    p1.link_button("🟢 WhatsApp", f"https://" + f"wa.me/?text={msg_wa}", use_container_width=True)
+    p2.link_button("✈️ Telegram", f"https://" + f"t.me/share/url?url={urllib.parse.quote(app_url)}&text={msg_tg}", use_container_width=True)
+
 st.caption("SmartStake Football v10.0 — SaaS Edition")
-            
+    
