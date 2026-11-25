@@ -105,8 +105,8 @@ def redeem_vip_code(code: str, user_id: str) -> bool:
     try:
         r = requests.get(f"{sb_base}?code=eq.{c_clean}&select=*", headers=_sb_headers(), timeout=8)
         if r.status_code == 200:
-            rows = r.json()
-            if len(rows) > 0 and not rows[0].get("is_used", False):
+            item = next(iter(r.json()), None)
+            if item and not item.get("is_used", False):
                 up = requests.patch(f"{sb_base}?code=eq.{c_clean}", headers=_sb_headers(), json={"is_used": True, "used_by": user_id}, timeout=8)
                 return up.status_code in (200, 204)
     except Exception:
