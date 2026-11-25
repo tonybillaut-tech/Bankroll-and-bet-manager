@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import datetime
-from moteur import CHAMPIONNATS, load_db, save_db, get_cap, fetch_matches, calc_v2, calc_v3_dixon_coles, poisson_score, check_results
+from moteur import CHAMPIONNATS, load_db, save_db, get_cap, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, poisson_score, check_results
 from onglets.backtest import render_backtest
 from onglets.infos import render_guide, render_pro
 
@@ -17,7 +17,7 @@ for k, v in [("user_id", "Invite"), ("analyses_count", 0), ("is_pro", False)]:
 hero_box = st.empty()
 def draw_hero():
     badge = "PRO ✨" if st.session_state.is_pro else f"Essai : {max(0, 3 - st.session_state.analyses_count)}/3"
-    hero_box.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>10 Compétitions Live • Algo V2 & V3 • Score Exact • <b>{badge}</b></p></div>', unsafe_allow_html=True)
+    hero_box.markdown(f'<div class="hero"><h1>⚽ SmartStake — Paris Sportifs Foot</h1><p>10 Compétitions Live • V2 / V3 / Méta-IA V4 • <b>{badge}</b></p></div>', unsafe_allow_html=True)
 
 draw_hero()
 st.caption("⚖️ Aide statistique (aucune garantie de gain). **18+ | Jouer comporte des risques** : **09 74 75 13 13**.")
@@ -36,6 +36,11 @@ capital_actuel = get_cap(user_data)
 
 @st.cache_data(ttl=3600, show_spinner="Chargement des matchs officiels...")
 def get_cached_matches(codes): return fetch_matches(codes)
+
+def run_algo(algo_name, df, eq1, eq2):
+    if "V4" in algo_name: return calc_v4_meta(df, eq1, eq2)
+    if "V3" in algo_name: return calc_v3_dixon_coles(df, eq1, eq2)
+    return calc_v2(df, eq1, eq2)
 
 tab_calc, tab_suivi, tab_bt, tab_tuto, tab_pro = st.tabs(["⚽ Analyse", "💰 Bankroll", "📊 Backtest", "📘 Guide", "🏆 Pro"])
 
@@ -60,7 +65,7 @@ with tab_calc:
         cn = q2.number_input("Cote N", min_value=1.50, value=3.30, step=0.05)
         c2 = q3.number_input("Cote 2", min_value=1.05, value=3.10, step=0.05)
         dnb = st.toggle("🛡️ Remboursé si nul (DNB)", value=True) if issue != "🤝 Match Nul" else False
-        algo_ver = st.radio("🧠 Moteur d'Analyse", ["⚡ Algo V2 (Forme & Domination)", "🧬 Algo V3 (Dixon-Coles Auto-Calibré)"], index=1, horizontal=True)
+        algo_ver = st.radio("🧠 Moteur d'Analyse", ["⚡ V2 (Forme)", "🧬 V3 (Dixon-Coles)", "🤖 V4 (Méta-IA V2+V3)"], index=2, horizontal=True)
 
         if st.button("⚽ ANALYSER LE 1N2 & CALCULER LA MISE", type="primary", use_container_width=True):
             if not st.session_state.is_pro and st.session_state.analyses_count >= 3: st.error("🔒 Limite atteinte ! Passe en Pro.")
@@ -69,7 +74,7 @@ with tab_calc:
                 st.session_state.analyses_count += 1
                 user_data["essai"] = st.session_state.analyses_count
                 draw_hero()
-                t3v, t3n, t3d, l1, l2 = calc_v3_dixon_coles(df, eq1, eq2) if "V3" in algo_ver else calc_v2(df, eq1, eq2)
+                t3v, t3n, t3d, l1, l2 = run_algo(algo_ver, df, eq1, eq2)
                 tot = max(1.0, t3v + t3n + t3d)
                 if issue == "🏠 Équipe 1": ct, cr, cmin, cmax, lbl = ((1 + t3d/t3v) if dnb else tot/t3v), ((c1*(cn-1)/cn) if dnb else c1), (1.90 if dnb else 2.00), (3.50 if dnb else 5.00), f"{eq1} ({'DNB' if dnb else '1'})"
                 elif issue == "🤝 Match Nul": ct, cr, cmin, cmax, lbl = tot/t3n, cn, 2.50, 4.50, "Match Nul"
@@ -90,7 +95,7 @@ with tab_calc:
                 db[st.session_state.user_id] = user_data; save_db(db)
 
         with st.expander("🎯 Calculateur de Mise — Score Exact (Loi de Poisson)", expanded=False):
-            _, _, _, l1, l2 = calc_v3_dixon_coles(df, eq1, eq2) if "V3" in algo_ver else calc_v2(df, eq1, eq2)
+            _, _, _, l1, l2 = run_algo(algo_ver, df, eq1, eq2)
             s1, s2, s3 = st.columns(3)
             g1 = s1.number_input("Buts Dom.", 0, 8, int(round(l1)))
             g2 = s2.number_input("Buts Ext.", 0, 8, int(round(l2)))
@@ -130,5 +135,3 @@ with tab_bt: render_backtest()
 with tab_tuto: render_guide()
 with tab_pro: render_pro(db, user_data)
 
-st.caption("SmartStake Football v8.0 — Dixon-Coles Edition")
-        
