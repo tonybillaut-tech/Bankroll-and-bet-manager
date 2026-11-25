@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import minimize
 from sklearn.linear_model import LogisticRegression
-import requests, os, urllib3, math, io
+import requests, os, urllib3, math
 import streamlit as st
 from database import load_db, save_db
 
@@ -21,15 +21,6 @@ CHAMPIONNATS = {
     "🇧🇷 Brasileirão": ("BSA", "BSA"),
     "🇪🇺 Ligue des Champions": ("CL", "CL")
 }
-
-def get_cap(u):
-    cap = float(u.get("capital_depart", 20.0))
-    for p in u.get("paris", []):
-        if p.get("Statut") == "✅ Gagné":
-            cap += float(p.get("Gain Visé (€)", 0))
-        elif p.get("Statut") == "❌ Perdu":
-            cap -= float(p.get("Mise (€)", 0))
-    return round(cap, 2)
 
 def fetch_matches(codes):
     fd_code, csv_code = codes
@@ -253,8 +244,5 @@ def calc_v4_meta(df, eq1, eq2):
     p_d = max(1.0, (0.8 * probs + 0.2 * p3) * 100.0)
     return p_v, p_n, p_d, (0.75 * l1_3 + 0.25 * l1_2), (0.75 * l2_3 + 0.25 * l2_2)
 
-def poisson_score(l1, l2, g1, g2):
-    p1 = (math.exp(-l1) * (l1 ** g1)) / math.factorial(g1)
-    p2 = (math.exp(-l2) * (l2 ** g2)) / math.factorial(g2)
-    prob = max(0.001, p1 * p2)
-                    
+from tracker import get_cap, poisson_score, check_results
+        
