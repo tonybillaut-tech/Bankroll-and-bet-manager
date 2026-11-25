@@ -54,15 +54,17 @@ def render_analyse(db, user_data, capital_actuel, draw_hero):
             t3v, t3n, t3d, l1, l2 = run_algo(algo_ver, df, eq1, eq2)
             tot = max(1.0, t3v + t3n + t3d)
             issues_spec = [
-                ("1", f"🏠 {eq1} ({'DNB' if dnb else '1'})", (1 + t3d / t3v) if dnb else tot / t3v, (c1 * (cn - 1) / cn) if dnb else c1, 1.90 if dnb else 2.00, 3.50 if dnb else 5.00),
-                ("N", "🤝 Match Nul", tot / t3n, cn, 2.50, 4.50),
-                ("2", f"✈️ {eq2} ({'DNB' if dnb else '2'})", (1 + t3v / t3d) if dnb else tot / t3d, (c2 * (cn - 1) / cn) if dnb else c2, 1.90 if dnb else 2.00, 3.50 if dnb else 5.00)
+                ("1", f"🏠 {eq1} ({'DNB' if dnb else '1'})", (1 + t3d / t3v) if dnb else tot / t3v, (c1 * (cn - 1) / cn) if dnb else c1, c1, 1.90 if dnb else 2.00, 3.50 if dnb else 5.00),
+                ("N", "🤝 Match Nul", tot / t3n, cn, cn, 2.50, 4.50),
+                ("2", f"✈️ {eq2} ({'DNB' if dnb else '2'})", (1 + t3v / t3d) if dnb else tot / t3d, (c2 * (cn - 1) / cn) if dnb else c2, c2, 1.90 if dnb else 2.00, 3.50 if dnb else 5.00)
             ]
             rapport = []
-            for code_i, lbl, ct, cr, cmin, cmax in issues_spec:
+            for code_i, lbl, ct, cr, c_sec, cmin, cmax in issues_spec:
                 ct_sec = ct * (1.0 + marge_val / 100.0)
                 ratio = cr / max(0.01, ct_sec)
-                if (cr > ct_sec) and (cmin <= cr <= cmax):
+                if not (cmin <= cr <= cmax):
+                    statut_col, obj, mise = "🔴 HORS FOURCHETTE", 0.0, 0.0
+                elif cr > ct_sec:
                     statut_col = "🟢 VALUE BET"
                     obj = (cap_input * (risque_pct / 100.0)) * (cr / 2.0)
                     mise = obj / max(0.01, cr - 1.0)
@@ -70,7 +72,7 @@ def render_analyse(db, user_data, capital_actuel, draw_hero):
                     statut_col, obj, mise = "🟡 VALUE FAIBLE", 0.0, 0.0
                 else:
                     statut_col, obj, mise = "🔴 NO BET", 0.0, 0.0
-                rapport.append({"code": code_i, "label": lbl, "statut": statut_col, "ct": round(ct, 2), "ct_sec": round(ct_sec, 2), "cr": round(cr, 2), "mise": round(mise, 2), "obj": round(obj, 2), "ratio": ratio})
+                rapport.append({"code": code_i, "label": lbl, "statut": statut_col, "ct": round(ct, 2), "ct_sec": round(ct_sec, 2), "cr": round(cr, 2), "c_sec": round(c_sec, 2), "mise": round(mise, 2), "obj": round(obj, 2), "ratio": ratio, "is_dnb": (dnb and code_i != "N")})
 
             st.session_state.last_scan = {"match": f"{eq1}-{eq2}", "fd_code": fd_code, "l1": l1, "l2": l2, "rapport": rapport}
 
@@ -82,12 +84,13 @@ def render_analyse(db, user_data, capital_actuel, draw_hero):
         for idx, item in enumerate(rapport):
             with cols[idx]:
                 st.markdown(f"**{item['label']}**")
+                cote_txt = f"**{item['cr']:.2f}** (DNB sur {item['c_sec']:.2f})" if item.get("is_dnb") else f"**{item['cr']:.2f}**"
                 if "🟢" in item["statut"]:
-                    st.success(f"**{item['statut']}**\n\nCote : **{item['cr']:.2f}** (Seuil {item['ct_sec']:.2f})\n\nMise : **{item['mise']:.2f} €** (+{item['obj']:.2f} €)")
+                    st.success(f"**{item['statut']}**\n\nCote : {cote_txt} | Seuil {item['ct_sec']:.2f}\n\nMise : **{item['mise']:.2f} €** (+{item['obj']:.2f} €)")
                 elif "🟡" in item["statut"]:
-                    st.warning(f"**{item['statut']}**\n\nCote : **{item['cr']:.2f}** (Juste {item['ct']:.2f})\n\nSeuil requis : {item['ct_sec']:.2f}")
+                    st.warning(f"**{item['statut']}**\n\nCote : {cote_txt} (Juste {item['ct']:.2f})\n\nSeuil requis : {item['ct_sec']:.2f}")
                 else:
-                    st.error(f"**{item['statut']}**\n\nCote : **{item['cr']:.2f}**\n\nCote juste : {item['ct']:.2f}")
+                    st.error(f"**{item['statut']}**\n\nCote : {cote_txt}\n\nCote juste : {item['ct']:.2f}")
 
         greens = [r for r in rapport if "🟢" in r["statut"]]
         if greens:
@@ -121,4 +124,4 @@ def render_analyse(db, user_data, capital_actuel, draw_hero):
             db[st.session_state.user_id] = user_data
             save_db(db)
             st.success("✅ Ajouté !")
-              
+            
