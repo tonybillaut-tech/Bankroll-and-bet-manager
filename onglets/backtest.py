@@ -56,6 +56,7 @@ def simuler_df(df, cap_init, marge_pct, dnb, algo="V3", C_val=0.5, alpha=0.80, d
     return paris, round(gagnes * 100 / max(1, paris), 1), round(cap, 2), round(((cap - cap_init) / max(1.0, mise_tot)) * 100, 1), hist
 
 def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb, bar=None):
+    old_cfg = db.setdefault("_v4_meta", {}).get(key, {})
     best_score, best_res = -9999.0, None
     for idx, (c_try, a_try) in enumerate(((0.2, 0.75), (0.5, 0.80), (1.0, 0.85), (2.0, 0.90))):
         if bar is not None:
@@ -70,8 +71,22 @@ def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb, bar=None):
     p_v5, _, cap_v5, roi_v5, hist_v5 = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=best_genome)
     if best_res:
         bc, ba, bp, broi = best_res
-        db.setdefault("_v4_meta", {})[key] = {"C": float(bc), "alpha": round(float(ba), 2), "trained": True, "roi_bt": round(float(broi), 1), "paris_bt": int(bp), "darwin_genes": [round(float(g), 4) for g in best_genome], "darwin_roi": round(float(roi_v5), 1), "darwin_paris": int(p_v5)}
-        return {"roi_v4": broi, "p_v4": bp, "roi_v5": roi_v5, "p_v5": p_v5, "cap_v5": cap_v5, "hist_v5": hist_v5}
+        old_v4 = old_cfg.get("roi_bt")
+        if old_v4 is not None and float(old_v4) > float(broi) and old_cfg.get("trained"):
+            bc, ba, bp, broi = old_cfg.get("C", bc), old_cfg.get("alpha", ba), old_cfg.get("paris_bt", bp), float(old_v4)
+
+        old_v5 = old_cfg.get("darwin_roi")
+        kept_old = False
+        if old_v5 is not None and float(old_v5) > float(roi_v5) and old_cfg.get("darwin_genes"):
+            genes_save = old_cfg.get("darwin_genes")
+            roi5_save, p5_save = float(old_v5), old_cfg.get("darwin_paris", p_v5)
+            kept_old = True
+        else:
+            genes_save = [round(float(g), 4) for g in best_genome]
+            roi5_save, p5_save = round(float(roi_v5), 1), int(p_v5)
+
+        db["_v4_meta"][key] = {"C": float(bc), "alpha": round(float(ba), 2), "trained": True, "roi_bt": round(float(broi), 1), "paris_bt": int(bp), "darwin_genes": genes_save, "darwin_roi": roi5_save, "darwin_paris": p5_save}
+        return {"roi_v4": broi, "p_v4": bp, "roi_v5": roi5_save, "p_v5": p5_save, "cap_v5": cap_v5, "hist_v5": hist_v5, "kept_old": kept_old, "try_v5": roi_v5}
     return None
 
 def scroll_to(anchor):
@@ -123,35 +138,25 @@ def render_backtest():
                     if bilan:
                         bilan["ligue"] = ligue
                         st.session_state["last_train"] = bilan
-            bar.progress(100, text="✅ Sauvegardé !")
+            bar.progress(100, text="✅ Terminé !")
             st.rerun()
 
         lt = st.session_state.get("last_train")
         if isinstance(lt, dict) and lt.get("ligue") == ligue:
             st.markdown('<div id="res-bt"></div>', unsafe_allow_html=True)
-            st.success(f"✅ **{ligue}** entraînée et enregistrée !")
+            if lt.get("kept_old"):
+                st.info(f"🛡️ **Élitisme actif :** le candidat testé (`{lt['try_v5']:+.1f}%`) n'a pas battu le champion enregistré (`{lt['roi_v5']:+.1f}%`), l'ancien ADN a donc été conservé.")
+            else:
+                st.success(f"✅ **{ligue}** : nouveau record enregistré !")
             if not lt.get("multi"):
                 t1, t2 = st.columns(2)
                 t1.metric("🤖 V4", f"{lt['roi_v4']:+.1f}%", delta=f"{lt['p_v4']} paris")
-                t2.metric("🦖 V5 Darwin", f"{lt['cap_v5']:.2f} €", delta=f"{lt['roi_v5']:+.1f}% ({lt['p_v5']}p)")
+                t2.metric("🦖 V5 Champion", f"{lt['roi_v5']:+.1f}%", delta=f"{lt['p_v5']} paris")
                 if lt.get("hist_v5"):
-                    st.line_chart(pd.DataFrame({"🦖 V5 Darwin (€)": lt["hist_v5"]}))
+                    st.line_chart(pd.DataFrame({"🦖 Candidat testé (€)": lt["hist_v5"]}))
             scroll_to("res-bt")
         return
 
     if st.button(f"⚔️ Lancer le Duel ({ligue})", type="primary", use_container_width=True):
         bar = zone_prog.progress(10, text="Simulation en cours...")
         if is_all:
-            tot_p, tot_g, cap_l, hists = {"V2": 0, "V3": 0, "V4": 0, "V5": 0}, {"V2": 0.0, "V3": 0.0, "V4": 0.0, "V5": 0.0}, cap_init / len(LIGUES_EU), {"V2": [], "V3": [], "V4": [], "V5": []}
-            for idx, nom_l in enumerate(LIGUES_EU):
-                bar.progress(int((idx / len(LIGUES_EU)) * 90), text=f"⏳ {nom_l}...")
-                codes_l = CHAMPIONNATS.get(nom_l)
-                cfg_l = get_v4_params(db, codes_l)
-                df_l = fetch_odds_df(codes_l)
-                if len(df_l) >= 65:
-                    for m_n, cv, av, gv in [("V2", 0.5, 0.8, None), ("V3", 0.5, 0.8, None), ("V4", cfg_l.get("C", 0.5), cfg_l.get("alpha", 0.8), None), ("V5", 0.5, 0.8, cfg_l.get("darwin_genes"))]:
-                        pm, _, cf, _, hm = simuler_df(df_l, cap_l, marge_pct, dnb, m_n, cv, av, gv, step_v4=35)
-                        tot_p[m_n] += pm
-                        tot_g[m_n] += (cf - cap_l)
-                        hists[m_n].append(hm)
-    
