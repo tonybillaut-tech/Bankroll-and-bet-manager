@@ -72,8 +72,9 @@ def render_backtest():
     d_genes = v4_cfg.get("darwin_genes")
 
     if v4_cfg.get("trained"):
-        d_txt = " • 🦖 Darwin Cloud actif" if d_genes else ""
-        st.info(f"🧠 **IA entraînée sur {ligue} :** V4 `C={v4_cfg.get('C')}` ({int(v4_cfg.get('alpha', 0.8)*100)}% IA, ROI **{v4_cfg.get('roi_bt', 0):+.1f}%**){d_txt}")
+        d_roi = v4_cfg.get("darwin_roi")
+        d_txt = f" • 🦖 V5 : **{d_roi:+.1f}%**" if d_roi is not None else (" • 🦖 Darwin actif" if d_genes else "")
+        st.info(f"🧠 **{ligue} :** 🤖 V4 `C={v4_cfg.get('C')}` (**{v4_cfg.get('roi_bt', 0):+.1f}%**){d_txt}")
 
     c1, c2 = st.columns(2)
     cap_init = c1.number_input("💰 Capital départ (€)", 10.0, 10000.0, 100.0, step=10.0)
@@ -94,7 +95,7 @@ def render_backtest():
         if len(df) < 65:
             st.warning(f"Pas assez de matchs terminés ({len(df)} trouvés, 65 requis).")
         else:
-            bar.progress(45, text="🤖 Optimisation V4 Méta-IA...")
+            bar.progress(40, text="🤖 Optimisation V4 Méta-IA...")
             grille = [(0.2, 0.70), (0.5, 0.50), (0.5, 0.80), (1.0, 0.70), (1.0, 0.90), (2.0, 0.85)]
             best_score, best_res = -9999.0, None
             for c_try, a_try in grille:
@@ -103,8 +104,9 @@ def render_backtest():
                 if score > best_score:
                     best_score = score
                     best_res = (c_try, a_try, p_t, roi_t)
-            bar.progress(80, text="🦖 Évolution génétique V5 Darwin...")
+            bar.progress(75, text="🦖 Évolution génétique V5 Darwin...")
             best_genome, _ = run_evolution(df.tail(220).reset_index(drop=True), n_pop=45, n_gen=20)
+            p_v5, _, _, roi_v5, _ = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=best_genome)
             if best_res:
                 bc, ba, bp, broi = best_res
                 if "_v4_meta" not in db or not isinstance(db["_v4_meta"], dict):
@@ -112,7 +114,8 @@ def render_backtest():
                 db["_v4_meta"][key] = {
                     "C": float(bc), "alpha": round(float(ba), 2), "trained": True,
                     "roi_bt": round(float(broi), 1), "paris_bt": int(bp),
-                    "darwin_genes": [round(float(g), 4) for g in best_genome]
+                    "darwin_genes": [round(float(g), 4) for g in best_genome],
+                    "darwin_roi": round(float(roi_v5), 1), "darwin_paris": int(p_v5)
                 }
                 requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=8)
             bar.progress(100, text="✅ Sauvegardé !")
@@ -149,7 +152,21 @@ def render_backtest():
             st.line_chart(pd.DataFrame({"⚡ V2": h2[-m:], "🧬 V3": h3[-m:], "🤖 V4": h4[-m:], "🦖 V5 Darwin": h5[-m:]}))
 
     st.divider()
-    if st.button("🏆 Classement V4 & V5 Cloud (Instantané)", use_container_width=True):
-        rows = [{"Ligue": n, "V4": "🧠 OK" if get_v4_params(db, c).get("trained") else "Std", "V5": "🦖 OK" if get_v4_params(db, c).get("darwin_genes") else "Auto", "ROI V4 (%)": get_v4_params(db, c).get("roi_bt", 0.0)} for n, c in CHAMPIONNATS.items()]
-        st.dataframe(pd.DataFrame(rows).sort_values("ROI V4 (%)", ascending=False), use_container_width=True, hide_index=True)
+    if st.button("🏆 Classement V4 vs V5 Darwin (Instantané)", use_container_width=True):
+        rows = []
+        for n, c in CHAMPIONNATS.items():
+            cfg = get_v4_params(db, c)
+            r4 = float(cfg.get("roi_bt", 0.0))
+            r5 = cfg.get("darwin_roi")
+            best_r = max(r4, float(r5)) if r5 is not None else r4
+            leader = "🦖 V5" if (r5 is not None and float(r5) > r4) else "🤖 V4"
+            rows.append({
+                "Ligue": n,
+                "🤖 V4 (%)": round(r4, 1),
+                "🦖 V5 (%)": round(float(r5), 1) if r5 is not None else None,
+                "Leader": leader,
+                "_sort": best_r
+            })
+        df_rank = pd.DataFrame(rows).sort_values("_sort", ascending=False).drop(columns=["_sort"])
+        st.dataframe(df_rank, use_container_width=True, hide_index=True)
         
