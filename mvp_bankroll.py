@@ -1,15 +1,12 @@
 import streamlit as st
+import importlib, pkgutil, inspect
 from database import load_db, save_db, hash_pin
 from moteur import get_cap
 from onglets.analyse import render_analyse
-from onglets.historique import render_historique
 from onglets.backtest import render_backtest
 from onglets.donnees import render_donnees
-from onglets.vip import render_vip
-from onglets.guide import render_guide
 
 st.set_page_config(page_title="SmartStake — Value Bet & Bankroll IA", page_icon="⚽", layout="centered")
-
 is_android = st.query_params.get("platform", "") == "android"
 
 st.markdown("""
@@ -78,29 +75,40 @@ if c_head3.button("🚪 Quitter", use_container_width=True):
     st.session_state["user"] = ""
     st.rerun()
 
-tab_ana, tab_hist, tab_bt, tab_csv, tab_vip, tab_guide = st.tabs([
-    "⚽ Analyse",
-    "📜 Paris",
-    "📊 Backtest",
-    "📂 CSV / Perso",
-    "💎 VIP",
-    "📘 Guide"
-])
+# Détection automatique des autres onglets existants dans onglets/
+extra_tabs = []
+for _, mod_name, _ in pkgutil.iter_modules(["onglets"]):
+    if mod_name not in ("analyse", "backtest", "donnees"):
+        try:
+            mod = importlib.import_module(f"onglets.{mod_name}")
+            fn = next((v for k, v in inspect.getmembers(mod, inspect.isfunction) if k.startswith("render_")), None)
+            if fn:
+                label = "📜 Paris" if "hist" in mod_name or "pari" in mod_name else ("💎 VIP" if "vip" in mod_name or "abo" in mod_name else ("📘 Guide" if "info" in mod_name or "guide" in mod_name else f"📌 {mod_name.capitalize()}"))
+                extra_tabs.append((label, mod_name, fn))
+        except Exception:
+            pass
 
-with tab_ana:
+tab_labels = ["⚽ Analyse", "📊 Backtest", "📂 CSV / Perso"] + [t[0] for t in extra_tabs]
+tabs = st.tabs(tab_labels)
+
+with tabs[0]:
     render_analyse(user, db, cap, is_pro)
 
-with tab_hist:
-    render_historique(user, db)
-
-with tab_bt:
+with tabs[1]:
     render_backtest()
 
-with tab_csv:
+with tabs[2]:
     render_donnees()
 
-with tab_vip:
-    render_vip(user, db, is_pro, is_android)
-
-with tab_guide:
-    render_guide()
+for idx, (_, mod_name, fn) in enumerate(extra_tabs):
+    with tabs[idx + 3]:
+        n_params = len(inspect.signature(fn).parameters)
+        if n_params == 0:
+            fn()
+        elif n_params == 2:
+            fn(user, db)
+        elif n_params == 3:
+            fn(user, db, is_pro)
+        else:
+            fn(user, db, is_pro, is_android)
+            
