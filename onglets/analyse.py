@@ -85,8 +85,6 @@ def render_analyse(*args):
     dnb_mode = st.toggle("🔄 Option Sécurité : Remboursé si Nul (DNB)", value=False)
     risque_pct = st.slider("🛡️ Risque maximum par pari (% du capital)", 1.0, 10.0, 5.0, step=0.5)
 
-    zone_alerte = st.empty()
-
     if st.button("🚀 Lancer l'analyse & détecter les Value Bets", type="primary", use_container_width=True):
         if not is_pro and essai >= 3:
             st.error("🔒 **Tes 3 analyses gratuites sont épuisées.** Passe en mode **VIP Pro** dans l'onglet **💎 Abonnement** pour continuer en illimité !")
@@ -106,8 +104,20 @@ def render_analyse(*args):
         else:
             t1, tn, t2, l1, l2 = calc_v2(df, eq1, eq2)
 
-        st.toast("✅ Analyse terminée ! Résultats affichés ci-dessous.")
-        zone_alerte.success("✅ **Analyse terminée !** Découvre le verdict détaillé juste en dessous 👇")
+        st.session_state["last_ana"] = {
+            "eq1": eq1, "eq2": eq2,
+            "t1": t1, "tn": tn, "t2": t2, "l1": l1, "l2": l2,
+            "c1_b": c1_b, "cn_b": cn_b, "c2_b": c2_b,
+            "dnb_mode": dnb_mode, "risque_pct": risque_pct,
+            "scroll": True
+        }
+
+    res = st.session_state.get("last_ana")
+    if isinstance(res, dict) and res.get("eq1") == eq1 and res.get("eq2") == eq2:
+        t1, tn, t2 = res["t1"], res["tn"], res["t2"]
+        l1, l2 = res["l1"], res["l2"]
+        c1_b, cn_b, c2_b = res["c1_b"], res["cn_b"], res["c2_b"]
+        dnb_mode, risque_pct = res["dnb_mode"], res["risque_pct"]
 
         st.markdown('<div id="resultats-analyse"></div>', unsafe_allow_html=True)
         m1, mn, m2 = st.columns(3)
@@ -136,18 +146,22 @@ def render_analyse(*args):
                 found = True
                 mise_opt = round(min(cap, ((cap * (risque_pct / 100.0)) * (c_reelle / 2.0)) / max(0.1, c_reelle - 1.0)), 2)
                 st.success(f"💎 **VALUE BET DÉTECTÉ : {label}**\n\n• Cote réelle : **{c_reelle:.2f}** (vs cote juste **{c_theo:.2f}**) → Avantage mathématique : **+{edge:.1f}%**\n• Mise conseillée ({risque_pct}% risque) : **{mise_opt:.2f} €**")
-                if st.button(f"📥 Enregistrer ce pari ({mise_opt:.2f} € sur {label})", key=f"save_{label}"):
-                    u.setdefault("paris", []).append({
-                        "Date": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                        "Match": f"{eq1} vs {eq2}",
-                        "Pronostic": label,
-                        "Cote": round(c_reelle, 2),
-                        "Mise (€)": mise_opt,
-                        "Statut": "⏳ En cours"
-                    })
-                    db[user] = u
-                    save_db(db)
-                    st.toast("✅ Pari ajouté à ta bankroll !")
+                if st.button(f"📥 Enregistrer ce pari ({mise_opt:.2f} € sur {label})", key=f"save_{eq1}_{eq2}_{label}"):
+                    if not user:
+                        st.error("Connecte-toi à ton compte pour enregistrer un pari.")
+                    else:
+                        u.setdefault("paris", []).append({
+                            "Date": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                            "Match": f"{eq1} vs {eq2}",
+                            "Pronostic": label,
+                            "Cote": round(c_reelle, 2),
+                            "Mise (€)": mise_opt,
+                            "Statut": "⏳ En cours"
+                        })
+                        db[user] = u
+                        save_db(db)
+                        st.success(f"✅ Pari enregistré dans ta Bankroll (**{mise_opt:.2f} €** sur **{label}**) !")
+                        st.toast("✅ Pari ajouté à ta bankroll !")
 
         if not found:
             st.warning("🛡️ **Aucun Value Bet détecté sur ces cotes.** La discipline consiste à passer son tour !")
@@ -168,8 +182,10 @@ def render_analyse(*args):
                 mise_sc = round(min(cap * 0.025, (cap * (risque_pct / 100.0)) * 0.4), 2)
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
 
-        components.html(
-            "<script>const el = window.parent.document.getElementById('resultats-analyse'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>",
-            height=0
-        )
-        
+        if res.get("scroll"):
+            res["scroll"] = False
+            components.html(
+                "<script>const el = window.parent.document.getElementById('resultats-analyse'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>",
+                height=0
+    )
+            
