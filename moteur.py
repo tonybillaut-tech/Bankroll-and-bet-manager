@@ -5,6 +5,7 @@ from database import load_db, save_db, SUPABASE_URL, _sb_headers
 from algo_v2 import calc_v2
 from algo_v3 import calc_v3_dixon_coles
 from algo_v4 import calc_v4_meta
+from algo_v5 import calc_v5_darwin
 
 urllib3.disable_warnings()
 FD_TOKEN = st.secrets.get("FD_TOKEN", "d2193c7f2b1e47458dbed1b4e8c10732")
@@ -96,3 +97,4 @@ def fetch_matches(codes):
     return pd.DataFrame(), err_api
 
 from tracker import poisson_score, check_results
+                    
