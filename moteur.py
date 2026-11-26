@@ -252,3 +252,12 @@ def calc_v4_meta(df, eq1, eq2, C_val=0.5, alpha=0.80):
     tot2 = max(1.0, v2_1 + v2_n + v2_2)
     p2 = np.array([v2_1 / tot2, v2_n / tot2, v2_2 / tot2])
         
+    p3 = np.array([v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0])
+    feat = np.concatenate([p2, p3, p3 - p2, [l1_3 - l2_3]]).reshape(1, -1)
+
+    probs = clf.predict_proba(feat).flatten()
+    blend = np.maximum(1.0, (float(alpha) * probs + (1.0 - float(alpha)) * p3) * 100.0)
+    p_v, p_n, p_d = blend.tolist()
+    return p_v, p_n, p_d, (0.75 * l1_3 + 0.25 * l1_2), (0.75 * l2_3 + 0.25 * l2_2)
+
+from tracker import poisson_score, check_results
