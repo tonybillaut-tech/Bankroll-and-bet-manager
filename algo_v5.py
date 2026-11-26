@@ -51,13 +51,19 @@ def predict_with_genome(genes, feat):
     l2 = max(0.35, exp_g2 * float(l_scale) * (1.0 - 0.15 * elo_diff))
     return p_v * 100.0, p_n * 100.0, p_d * 100.0, l1, l2
 
-def run_evolution(df_sub, n_pop=40, n_gen=18):
-    rng = np.random.default_rng(42)
+def run_evolution(df_sub, n_pop=40, n_gen=18, seed_genome=None):
+    rng = np.random.default_rng()
     pop = rng.normal(
         loc=[1.4, 0.8, 0.5, 0.25, -0.15, 1.2, 1.0, 0.4],
         scale=[0.8, 0.6, 0.4, 0.25, 0.25, 0.4, 0.2, 0.3],
         size=(n_pop, 8)
     )
+
+    if seed_genome is not None and len(seed_genome) == 8:
+        base = np.array([float(x) for x in seed_genome], dtype=float)
+        half = max(2, n_pop // 2)
+        seeded = [base] + [base + rng.normal(0.0, 0.10, size=8) for _ in range(half - 1)]
+        pop = np.vstack([np.array(seeded), pop[half:]])
 
     feats, targets, odds = [], [], []
     has_odds = {'B365H', 'B365D', 'B365A'}.issubset(df_sub.columns)
@@ -82,7 +88,8 @@ def run_evolution(df_sub, n_pop=40, n_gen=18):
         elo_running[a] = ea + 24.0 * ((1.0 - res_h) - (1.0 - exp_h))
 
     if len(feats) < 25:
-        return (1.4, 0.8, 0.5, 0.25, -0.15, 1.2, 1.0, 0.4), elo_running
+        fallback = tuple(float(x) for x in seed_genome) if (seed_genome and len(seed_genome) == 8) else (1.4, 0.8, 0.5, 0.25, -0.15, 1.2, 1.0, 0.4)
+        return fallback, elo_running
 
     for _ in range(n_gen):
         fitness = []
@@ -110,7 +117,7 @@ def run_evolution(df_sub, n_pop=40, n_gen=18):
             mask = rng.random(8) < 0.5
             child = np.where(mask, p1, p2)
             if rng.random() < 0.35:
-                child += rng.normal(0.0, 0.18, size=8)
+                child += rng.normal(0.0, 0.15, size=8)
             next_pop.append(child)
         pop = np.array(next_pop)
 
