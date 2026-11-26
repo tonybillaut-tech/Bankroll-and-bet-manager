@@ -51,8 +51,7 @@ def predict_with_genome(genes, feat):
     l2 = max(0.35, exp_g2 * float(l_scale) * (1.0 - 0.15 * elo_diff))
     return p_v * 100.0, p_n * 100.0, p_d * 100.0, l1, l2
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def evolve_darwin_v5(df_hash, df_sub, n_pop=36, n_gen=14):
+def run_evolution(df_sub, n_pop=40, n_gen=18):
     rng = np.random.default_rng(42)
     pop = rng.normal(
         loc=[1.4, 0.8, 0.5, 0.25, -0.15, 1.2, 1.0, 0.4],
@@ -63,7 +62,7 @@ def evolve_darwin_v5(df_hash, df_sub, n_pop=36, n_gen=14):
     feats, targets, odds = [], [], []
     has_odds = {'B365H', 'B365D', 'B365A'}.issubset(df_sub.columns)
     elo_running = {}
-    start = max(30, len(df_sub) - 140)
+    start = max(30, len(df_sub) - 160)
 
     for i in range(len(df_sub)):
         r = df_sub.iloc[i]
@@ -93,19 +92,18 @@ def evolve_darwin_v5(df_hash, df_sub, n_pop=36, n_gen=14):
                 pv, pn, pd_p, _, _ = predict_with_genome(ind, f)
                 p_map = {'H': pv / 100.0, 'D': pn / 100.0, 'A': pd_p / 100.0}
                 log_loss += math.log(max(0.05, p_map[t]))
-                if pv > 35.0 and ch > (100.0 / pv) * 1.08 and 1.85 <= ch <= 3.60:
+                if pv > 35.0 and ch > (100.0 / pv) * 1.10 and 1.85 <= ch <= 3.50:
                     bets += 1
                     profit += (ch - 1.0) if t == 'H' else (-1.0 if t == 'A' else 0.0)
-                elif pd_p > 35.0 and ca > (100.0 / pd_p) * 1.08 and 1.85 <= ca <= 3.60:
+                elif pd_p > 35.0 and ca > (100.0 / pd_p) * 1.10 and 1.85 <= ca <= 3.50:
                     bets += 1
                     profit += (ca - 1.0) if t == 'A' else (-1.0 if t == 'H' else 0.0)
-            roi_bonus = (profit / max(5, bets)) * 15.0 if bets >= 6 else -5.0
+            roi_bonus = (profit / max(5, bets)) * 18.0 if bets >= 6 else -5.0
             fitness.append((log_loss / len(feats)) + roi_bonus)
 
         elite_idx = np.argsort(fitness)[-8:]
         elites = pop[elite_idx]
-        champion = elites[-1]
-        next_pop = [champion]
+        next_pop = [elites[-1]]
         while len(next_pop) < n_pop:
             idx1, idx2 = rng.choice(8, size=2, replace=False).tolist()
             p1, p2 = elites[idx1], elites[idx2]
@@ -116,15 +114,32 @@ def evolve_darwin_v5(df_hash, df_sub, n_pop=36, n_gen=14):
             next_pop.append(child)
         pop = np.array(next_pop)
 
-    best_genome = tuple(next(iter(pop)).tolist())
-    return best_genome, elo_running
+    return tuple(next(iter(pop)).tolist()), elo_running
 
-def calc_v5_darwin(df, eq1, eq2):
+@st.cache_data(ttl=3600, show_spinner=False)
+def evolve_cached(df_hash, df_sub):
+    return run_evolution(df_sub, n_pop=28, n_gen=10)
+
+def calc_v5_darwin(df, eq1, eq2, cloud_genome=None):
     sub = df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).tail(220).reset_index(drop=True)
     if len(sub) < 35:
         return 40.0, 30.0, 30.0, 1.3, 1.1
-    df_hash = f"darwin_{len(sub)}_{sub.iloc[-1]['HomeTeam']}_{sub.iloc[-1]['AwayTeam']}_{sub.iloc[-1]['FTR']}"
-    alpha_genome, elo_dict = evolve_darwin_v5(df_hash, sub)
+
+    elo_dict = {}
+    for _, r in sub.iterrows():
+        h, a = r['HomeTeam'], r['AwayTeam']
+        eh, ea = elo_dict.get(h, 1500.0), elo_dict.get(a, 1500.0)
+        exp_h = 1.0 / (1.0 + 10.0 ** ((ea - (eh + 65.0)) / 400.0))
+        res_h = 1.0 if r['FTR'] == 'H' else (0.5 if r['FTR'] == 'D' else 0.0)
+        elo_dict[h] = eh + 24.0 * (res_h - exp_h)
+        elo_dict[a] = ea + 24.0 * ((1.0 - res_h) - (1.0 - exp_h))
+
+    if cloud_genome and len(cloud_genome) == 8:
+        alpha_genome = tuple(float(x) for x in cloud_genome)
+    else:
+        df_hash = f"darwin_{len(sub)}_{sub.iloc[-1]['HomeTeam']}_{sub.iloc[-1]['AwayTeam']}_{sub.iloc[-1]['FTR']}"
+        alpha_genome, _ = evolve_cached(df_hash, sub)
+
     feat = extract_features_row(sub, eq1, eq2, elo_dict)
     return predict_with_genome(alpha_genome, feat)
     
