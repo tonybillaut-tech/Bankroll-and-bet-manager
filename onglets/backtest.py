@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests, io, time
 from database import load_db, save_db
-from moteur import CHAMPIONNATS, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, get_v4_params, save_v4_params
+from moteur import CHAMPIONNATS, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, get_v4_params, save_v4_params
 
 def fetch_odds_df(codes, saison="2526"):
     fd_code, csv_code = codes
@@ -25,11 +25,14 @@ def simuler_df(df, cap_init, marge_pct, dnb, algo="V3", C_val=0.5, alpha=0.80):
     hist = []
     has_odds = {'B365H', 'B365D', 'B365A'}.issubset(df.columns)
     mult = 1.0 + (marge_pct / 100.0)
-    start_idx = 60 if algo == "V4" else (25 if algo == "V3" else 15)
+    start_idx = 60 if algo in ("V4", "V5") else (25 if algo == "V3" else 15)
 
     for i in range(start_idx, len(df)):
         row = df.iloc[i]
-        if algo == "V4":
+        if algo == "V5":
+            sub_i = (i // 20) * 20
+            t3v, t3n, t3d, _, _ = calc_v5_darwin(df.iloc[:max(60, sub_i)], row["HomeTeam"], row["AwayTeam"])
+        elif algo == "V4":
             sub_i = (i // 15) * 15
             t3v, t3n, t3d, _, _ = calc_v4_meta(df.iloc[:max(60, sub_i)], row["HomeTeam"], row["AwayTeam"], C_val=C_val, alpha=alpha)
         elif algo == "V3":
@@ -79,7 +82,7 @@ def optimiser_grille(df, cap_init, marge_pct, dnb, grille, prog_bar=None):
     return best_res
 
 def render_backtest():
-    st.subheader("📊 Backtest, Duel IA & Entraînement V4")
+    st.subheader("📊 Backtest, Duel IA & Évolution Darwin")
     db = load_db()
     ligue = st.selectbox("🏟️ Championnat détaillé", list(CHAMPIONNATS.keys()))
     fd_code = CHAMPIONNATS[ligue]
@@ -90,12 +93,12 @@ def render_backtest():
 
     c1, c2 = st.columns(2)
     cap_init = c1.number_input("💰 Capital départ (€)", 10.0, 10000.0, 100.0, step=10.0)
-    marge_pct = c2.slider("🛡️ Marge sécurité Value (%)", 0, 25, 8, step=2)
+    marge_pct = c2.slider("🛡️ Marge sécurité Value (%)", 0, 25, 10, step=2)
     dnb = st.toggle("🔄 Simuler avec DNB (Remboursé si nul)", value=True)
     csv_up = st.file_uploader("📂 Importer un CSV Bet365 (optionnel)", type=["csv"])
 
     b1, b2 = st.columns(2)
-    run_duel = b1.button("⚔️ Duel V2 vs V3 vs V4", type="primary", use_container_width=True)
+    run_duel = b1.button("⚔️ Duel V2 vs V3 vs V4 vs V5", type="primary", use_container_width=True)
     run_train = b2.button("🧠 Entraîner V4 (Cette ligue)", use_container_width=True)
 
     if run_train:
@@ -118,10 +121,9 @@ def render_backtest():
                 if best_res:
                     bc, ba, bp, br, bcap, broi = best_res
                     save_v4_params(db, fd_code, bc, ba, broi, bp)
-                    st.success(f"🎉 **V4 entraînée et sauvegardée pour {ligue} !** ROI : **{broi:+.1f}%**")
 
     if run_duel:
-        with st.spinner("Simulation du Duel V2 vs V3 vs V4 en cours..."):
+        with st.spinner("Arène IA : V2 vs V3 vs V4 vs V5 Darwin en cours..."):
             if csv_up:
                 df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True)
                 real_odds = {'B365H', 'B365D', 'B365A'}.issubset(df.columns)
@@ -129,7 +131,7 @@ def render_backtest():
                 df, real_odds = fetch_odds_df(CHAMPIONNATS[ligue])
 
             if len(df) < 65:
-                st.warning("Pas assez de matchs terminés pour entraîner la V4 (65 minimum requis).")
+                st.warning("Pas assez de matchs terminés pour le duel (65 minimum requis).")
             else:
                 if real_odds:
                     st.caption("✅ Simulation basée sur les **vraies cotes historiques Bet365**.")
@@ -139,26 +141,30 @@ def render_backtest():
                 p2, r2, cap2, roi2, hist2 = simuler_df(df, cap_init, marge_pct, dnb, algo="V2")
                 p3, r3, cap3, roi3, hist3 = simuler_df(df, cap_init, marge_pct, dnb, algo="V3")
                 p4, r4, cap4, roi4, hist4 = simuler_df(df, cap_init, marge_pct, dnb, algo="V4", C_val=v4_cfg["C"], alpha=v4_cfg["alpha"])
+                p5, r5, cap5, roi5, hist5 = simuler_df(df, cap_init, marge_pct, dnb, algo="V5")
 
-                col2, col3, col4 = st.columns(3)
+                col2, col3 = st.columns(2)
                 with col2:
                     st.markdown("#### ⚡ V2")
                     st.metric("Finale", f"{cap2:.2f} €", delta=f"{roi2:+.1f}%")
                     st.caption(f"{p2} paris • {r2}%")
-                with col3:
-                    st.markdown("#### 🧬 V3")
-                    st.metric("Finale", f"{cap3:.2f} €", delta=f"{roi3:+.1f}%")
-                    st.caption(f"{p3} paris • {r3}%")
-                with col4:
-                    st.markdown("#### 🤖 V4 IA")
+                    st.markdown("#### 🤖 V4 Méta-IA")
                     st.metric("Finale", f"{cap4:.2f} €", delta=f"{roi4:+.1f}%")
                     st.caption(f"{p4} paris • {r4}%")
+                with col3:
+                    st.markdown("#### 🧬 V3 Dixon-Coles")
+                    st.metric("Finale", f"{cap3:.2f} €", delta=f"{roi3:+.1f}%")
+                    st.caption(f"{p3} paris • {r3}%")
+                    st.markdown("#### 🦖 V5 Darwin")
+                    st.metric("Finale", f"{cap5:.2f} €", delta=f"{roi5:+.1f}%")
+                    st.caption(f"{p5} paris • {r5}%")
 
-                min_len = min(len(hist2), len(hist3), len(hist4))
+                min_len = min(len(hist2), len(hist3), len(hist4), len(hist5))
                 chart_df = pd.DataFrame({
                     "⚡ V2": hist2[-min_len:],
                     "🧬 V3 Dixon-Coles": hist3[-min_len:],
-                    "🤖 V4 Méta-IA": hist4[-min_len:]
+                    "🤖 V4 Méta-IA": hist4[-min_len:],
+                    "🦖 V5 Darwin": hist5[-min_len:]
                 })
                 st.line_chart(chart_df)
 
@@ -195,13 +201,4 @@ def render_backtest():
                     "Ligue": nom,
                     "V4": "🧠 Entraînée" if cfg_l.get("trained") else "Standard",
                     "Source": "Bet365" if real_odds else "Estimé",
-                    "Paris": p,
-                    "Réussite (%)": reuss,
-                    "Finale (€)": cap_f,
-                    "ROI (%)": roi_f
-                })
-            bar.progress((idx + 1) / len(items))
-            if not real_odds and idx < len(items) - 1:
-                time.sleep(6.1)
-        status_txt.empty()
-            
+    
