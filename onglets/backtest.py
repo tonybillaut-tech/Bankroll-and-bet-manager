@@ -71,7 +71,7 @@ def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb, bar=None):
             best_score, best_res = score, (c_try, a_try, p_t, roi_t)
     if bar is not None:
         bar.progress(75, text="🦖 Évolution V5 Darwin...")
-    best_genome, _ = run_evolution(df.tail(200).reset_index(drop=True), n_pop=25, n_gen=12)
+    best_genome, _ = run_evolution(df.tail(200).reset_index(drop=True), n_pop=45, n_gen=22)
     p_v5, _, cap_v5, roi_v5, hist_v5 = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=best_genome)
     if best_res:
         bc, ba, bp, broi = best_res
@@ -147,6 +147,8 @@ def render_backtest():
 
         lt = st.session_state.get("last_train")
         if isinstance(lt, dict) and lt.get("ligue") == ligue:
+            st.toast("✅ Entraînement sauvegardé !")
+            st.markdown('<div id="resultats-train"></div>', unsafe_allow_html=True)
             st.success(f"✅ **{ligue}** entraînée et enregistrée avec succès !")
             if not lt.get("multi"):
                 t1, t2 = st.columns(2)
@@ -154,13 +156,10 @@ def render_backtest():
                 t2.metric("🦖 V5 Darwin", f"{lt['cap_v5']:.2f} €", delta=f"{lt['roi_v5']:+.1f}% ({lt['p_v5']}p)")
                 if lt.get("hist_v5"):
                     st.line_chart(pd.DataFrame({"🦖 Champion V5 Darwin (€)": lt["hist_v5"]}))
+            components.html("<script>const el = window.parent.document.getElementById('resultats-train'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>", height=0)
         return
 
     if st.button(f"⚔️ Lancer le Duel ({ligue})", type="primary", use_container_width=True):
         bar = zone_prog.progress(10, text="Simulation en cours...")
         if is_all:
-            tot_p, tot_g, cap_l, hists = {"V2": 0, "V3": 0, "V4": 0, "V5": 0}, {"V2": 0.0, "V3": 0.0, "V4": 0.0, "V5": 0.0}, cap_init / len(LIGUES_EU), {"V2": [], "V3": [], "V4": [], "V5": []}
-            for idx, nom_l in enumerate(LIGUES_EU):
-                bar.progress(int((idx / len(LIGUES_EU)) * 90), text=f"⏳ {nom_l}...")
-                codes_l = CHAMPIONNATS.get(nom_l)
-        
+    
