@@ -5,21 +5,31 @@ from database import load_db, save_db
 from moteur import CHAMPIONNATS, fetch_matches, get_cap, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, get_v4_params
 
 def render_analyse(*args):
-    db, user, cap, is_pro_arg = None, "", None, False
+    db = load_db()
+    user = str(st.session_state.get("user", "")).strip()
+    is_pro_arg = False
+    cap_arg = None
+
     for a in args:
-        if isinstance(a, bool):
+        if type(a) is bool:
             is_pro_arg = a
-        elif isinstance(a, dict):
-            db = a
-        elif isinstance(a, str):
-            user = a
-        elif isinstance(a, (int, float)):
-            cap = float(a)
-    if db is None:
-        db = load_db()
-    u = db.get(user, {}) if isinstance(db, dict) else {}
-    if cap is None:
-        cap = get_cap(u)
+        elif isinstance(a, str) and not user:
+            user = a.strip()
+        elif isinstance(a, (int, float)) and type(a) is not bool:
+            cap_arg = float(a)
+
+    u = {}
+    if isinstance(db, dict):
+        if user in db:
+            u = db[user]
+        else:
+            for k, v in db.items():
+                if k.lower() == user.lower() and isinstance(v, dict):
+                    user = k
+                    u = v
+                    break
+
+    cap = cap_arg if cap_arg is not None else get_cap(u)
     is_pro = bool(is_pro_arg or u.get("is_pro", False))
     essai = int(u.get("essai", 0))
 
@@ -69,7 +79,7 @@ def render_analyse(*args):
             st.error("🔒 **Tes 3 analyses gratuites sont épuisées.** Passe en mode **VIP Pro** dans l'onglet **💎 Abonnement** pour continuer en illimité !")
             return
 
-        if not is_pro:
+        if not is_pro and user:
             u["essai"] = essai + 1
             db[user] = u
             save_db(db)
@@ -140,4 +150,4 @@ def render_analyse(*args):
                     break
                 mise_sc = round(min(cap * 0.025, (cap * (risque_pct / 100.0)) * 0.4), 2)
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
-                
+                     
