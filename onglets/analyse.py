@@ -6,31 +6,33 @@ from moteur import CHAMPIONNATS, fetch_matches, get_cap, calc_v2, calc_v3_dixon_
 
 def render_analyse(*args):
     db = load_db()
-    user = str(st.session_state.get("user", "")).strip()
-    is_pro_arg = False
+    user = ""
+    is_pro_flag = False
     cap_arg = None
 
+    for k_ss, v_ss in st.session_state.items():
+        if type(v_ss) is bool and v_ss and "pro" in str(k_ss).lower():
+            is_pro_flag = True
+        elif isinstance(v_ss, str) and isinstance(db, dict):
+            for k_db in db.keys():
+                if k_db != "_v4_meta" and k_db.lower() == v_ss.strip().lower():
+                    user = k_db
+
     for a in args:
-        if type(a) is bool:
-            is_pro_arg = a
-        elif isinstance(a, str) and not user:
-            user = a.strip()
+        if type(a) is bool and a:
+            is_pro_flag = True
+        elif isinstance(a, str) and isinstance(db, dict):
+            for k_db in db.keys():
+                if k_db != "_v4_meta" and k_db.lower() == a.strip().lower():
+                    user = k_db
+        elif isinstance(a, dict) and a.get("is_pro"):
+            is_pro_flag = True
         elif isinstance(a, (int, float)) and type(a) is not bool:
             cap_arg = float(a)
 
-    u = {}
-    if isinstance(db, dict):
-        if user in db:
-            u = db[user]
-        else:
-            for k, v in db.items():
-                if k.lower() == user.lower() and isinstance(v, dict):
-                    user = k
-                    u = v
-                    break
-
+    u = db.get(user, {}) if (user and isinstance(db, dict)) else {}
     cap = cap_arg if cap_arg is not None else get_cap(u)
-    is_pro = bool(is_pro_arg or u.get("is_pro", False))
+    is_pro = bool(is_pro_flag or u.get("is_pro", False))
     essai = int(u.get("essai", 0))
 
     st.subheader("⚽ Analyse Prédictive & Value Bets")
@@ -150,4 +152,4 @@ def render_analyse(*args):
                     break
                 mise_sc = round(min(cap * 0.025, (cap * (risque_pct / 100.0)) * 0.4), 2)
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
-                     
+        
