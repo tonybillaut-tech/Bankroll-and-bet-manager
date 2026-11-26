@@ -84,7 +84,7 @@ for _, mod_name, _ in pkgutil.iter_modules(["onglets"]):
             mod = importlib.import_module(f"onglets.{mod_name}")
             fn = next((v for k, v in inspect.getmembers(mod, inspect.isfunction) if k.startswith("render_")), None)
             if fn:
-                label = "📜 Paris" if "hist" in mod_name or "pari" in mod_name else ("💎 VIP" if "vip" in mod_name or "abo" in mod_name else ("📘 Guide" if "info" in mod_name or "guide" in mod_name else f"📌 {mod_name.capitalize()}"))
+                label = "📜 Bankroll" if ("bank" in mod_name or "hist" in mod_name) else ("💎 VIP" if ("vip" in mod_name or "abo" in mod_name) else ("📘 Guide" if ("info" in mod_name or "guide" in mod_name) else f"📌 {mod_name.capitalize()}"))
                 extra_tabs.append((label, mod_name, fn))
         except Exception:
             pass
@@ -108,8 +108,8 @@ for _, mod_name, fn in extra_tabs:
         if n_params == 0:
             fn()
         elif n_params == 2:
-            fn(user, db)
+            fn(db, user)
         elif n_params == 3:
-            fn(user, db, is_pro)
+            fn(db, user, cap)
         else:
-            fn(user, db, is_pro, is_android)
+            fn(db, user, is_pro, is_android)
