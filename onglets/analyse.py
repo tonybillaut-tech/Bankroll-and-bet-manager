@@ -125,15 +125,19 @@ def render_analyse(*args):
         if not found:
             st.warning("🛡️ **Aucun Value Bet détecté sur ces cotes.** La discipline consiste à passer son tour !")
 
-        with st.expander("🎯 Scores Exacts les plus probables (Loi de Poisson)"):
-            grille_sc = []
-            for g1 in range(5):
-                for g2 in range(5):
-                    p1 = (math.exp(-l1) * (l1 ** g1)) / math.factorial(g1)
-                    p2 = (math.exp(-l2) * (l2 ** g2)) / math.factorial(g2)
-                    grille_sc.append((p1 * p2 * 100.0, f"{g1}-{g2}"))
-            grille_sc.sort(reverse=True)
-            for prob, sc in grille_sc[:3]:
+        grille_sc = []
+        for g1 in range(5):
+            for g2 in range(5):
+                p1 = (math.exp(-l1) * (l1 ** g1)) / math.factorial(g1)
+                p2 = (math.exp(-l2) * (l2 ** g2)) / math.factorial(g2)
+                grille_sc.append((p1 * p2 * 100.0, f"{g1}-{g2}"))
+        grille_sc.sort(reverse=True)
+        top_prob, top_sc = next(iter(grille_sc))
+
+        with st.expander(f"🎯 Score Exact estimé : {top_sc} ({top_prob:.1f}%) • Buts attendus : {l1:.2f} - {l2:.2f}", expanded=True):
+            for idx, (prob, sc) in enumerate(grille_sc):
+                if idx >= 3:
+                    break
                 mise_sc = round(min(cap * 0.025, (cap * (risque_pct / 100.0)) * 0.4), 2)
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
-                                         
+        
