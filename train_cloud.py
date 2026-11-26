@@ -96,7 +96,8 @@ if __name__ == "__main__":
                     best_score = score
                     best_res = (c_try, a_try, p_t, roi_t)
 
-            best_genome, elo_dict = run_evolution(df.tail(220).reset_index(drop=True), n_pop=60, n_gen=35)
+            seed_g = old_cfg.get("darwin_genes")
+            best_genome, elo_dict = run_evolution(df.tail(220).reset_index(drop=True), n_pop=60, n_gen=35, seed_genome=seed_g)
             p_v5, roi_v5 = eval_darwin(df, best_genome, elo_dict)
 
             if best_res:
@@ -136,4 +137,4 @@ if __name__ == "__main__":
 
     r = requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=15)
     print("Sauvegarde Supabase:", r.status_code)
-    
+                             
