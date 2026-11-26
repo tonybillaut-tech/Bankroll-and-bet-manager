@@ -51,9 +51,13 @@ def save_v4_params(db: dict, league_code, C_val: float, alpha_val: float, roi_bt
         "paris_bt": int(paris_bt)
     }
     try:
-        requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=8)
-    except Exception:
-        pass
+        r = requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=8)
+        if r.status_code not in (200, 204):
+            st.error(f"Erreur sauvegarde Supabase ({r.status_code}) : {r.text}")
+        else:
+            st.rerun()
+    except Exception as e:
+        st.error(f"Erreur réseau Supabase : {e}")
 
 def fetch_matches(codes):
     fd_code, csv_code = codes
@@ -92,4 +96,3 @@ def fetch_matches(codes):
     return pd.DataFrame(), err_api
 
 from tracker import poisson_score, check_results
-                    
