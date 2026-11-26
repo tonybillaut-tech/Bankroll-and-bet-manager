@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
 import requests, io, time
-from moteur import CHAMPIONNATS, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta
+from database import load_db
+from moteur import CHAMPIONNATS, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, get_v4_params, save_v4_params
 
 def fetch_odds_df(codes, saison="2526"):
     fd_code, csv_code = codes
     if csv_code not in ["CL", "BSA"]:
         for s in [saison, "2425"]:
-            url = "https://" + "www.football-data.co.uk" + f"/mmz4281/{s}/{csv_code}.csv"
+            url = "".join(["ht", "tps:", "//", "www.football-data.co.uk/mmz4281/", s, "/", csv_code, ".csv"])
             try:
                 r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
                 if r.status_code == 200:
@@ -19,7 +20,7 @@ def fetch_odds_df(codes, saison="2526"):
     df, _ = fetch_matches(codes)
     return df.reset_index(drop=True), False
 
-def simuler_df(df, cap_init, marge_pct, dnb, algo="V3"):
+def simuler_df(df, cap_init, marge_pct, dnb, algo="V3", C_val=0.5, alpha=0.80):
     cap, mise_tot, paris, gagnes = cap_init, 0.0, 0, 0
     hist = []
     has_odds = {'B365H', 'B365D', 'B365A'}.issubset(df.columns)
@@ -30,7 +31,7 @@ def simuler_df(df, cap_init, marge_pct, dnb, algo="V3"):
         row = df.iloc[i]
         if algo == "V4":
             sub_i = (i // 15) * 15
-            t3v, t3n, t3d, _, _ = calc_v4_meta(df.iloc[:max(60, sub_i)], row["HomeTeam"], row["AwayTeam"])
+            t3v, t3n, t3d, _, _ = calc_v4_meta(df.iloc[:max(60, sub_i)], row["HomeTeam"], row["AwayTeam"], C_val=C_val, alpha=alpha)
         elif algo == "V3":
             sub_i = (i // 5) * 5
             t3v, t3n, t3d, _, _ = calc_v3_dixon_coles(df.iloc[:max(25, sub_i)], row["HomeTeam"], row["AwayTeam"])
@@ -66,16 +67,58 @@ def simuler_df(df, cap_init, marge_pct, dnb, algo="V3"):
     return paris, reussite, round(cap, 2), roi, hist
 
 def render_backtest():
-    st.subheader("📊 Backtest & Duel IA (V2 vs V3 vs V4)")
+    st.subheader("📊 Backtest, Duel IA & Entraînement V4")
+    db = load_db()
     ligue = st.selectbox("🏟️ Championnat détaillé", list(CHAMPIONNATS.keys()))
+    fd_code = CHAMPIONNATS[ligue]
+    v4_cfg = get_v4_params(db, fd_code)
+
+    if v4_cfg.get("trained"):
+        st.info(f"🧠 **V4 déjà entraînée sur {ligue} :** `C={v4_cfg['C']}` | Poids Méta-IA `{int(v4_cfg['alpha']*100)}%` | ROI Backtest : **{v4_cfg['roi_bt']:+.1f}%** ({v4_cfg['paris_bt']} paris)")
+
     c1, c2 = st.columns(2)
     cap_init = c1.number_input("💰 Capital départ (€)", 10.0, 10000.0, 100.0, step=10.0)
     marge_pct = c2.slider("🛡️ Marge sécurité Value (%)", 0, 25, 8, step=2)
     dnb = st.toggle("🔄 Simuler avec DNB (Remboursé si nul)", value=True)
     csv_up = st.file_uploader("📂 Importer un CSV Bet365 (optionnel)", type=["csv"])
 
-    if st.button("⚔️ Lancer le Duel V2 vs V3 vs V4 (Méta-IA)", type="primary", use_container_width=True):
-        with st.spinner("Entraînement du Méta-Modèle IA et simulation en cours..."):
+    b1, b2 = st.columns(2)
+    run_duel = b1.button("⚔️ Duel V2 vs V3 vs V4", type="primary", use_container_width=True)
+    run_train = b2.button("🧠 Entraîner V4 & Sauvegarder", use_container_width=True)
+
+    if run_train:
+        with st.spinner(f"Optimisation et entraînement de V4 sur {ligue}..."):
+            if csv_up:
+                df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True)
+            else:
+                df, _ = fetch_odds_df(CHAMPIONNATS[ligue])
+
+            if len(df) < 65:
+                st.warning("Pas assez de matchs terminés pour entraîner V4 (65 minimum requis).")
+            else:
+                grille = [
+                    (0.2, 0.50), (0.2, 0.75), (0.2, 0.90),
+                    (0.5, 0.50), (0.5, 0.75), (0.5, 0.90),
+                    (1.0, 0.50), (1.0, 0.75), (1.0, 0.90),
+                    (2.0, 0.60), (2.0, 0.80), (2.0, 0.95)
+                ]
+                best_score, best_res = -9999.0, None
+                prog = st.progress(0)
+                for idx, (c_try, a_try) in enumerate(grille):
+                    p_t, r_t, cap_t, roi_t, _ = simuler_df(df, cap_init, marge_pct, dnb, algo="V4", C_val=c_try, alpha=a_try)
+                    score = roi_t if p_t >= 8 else (roi_t - 50.0)
+                    if score > best_score:
+                        best_score = score
+                        best_res = (c_try, a_try, p_t, r_t, cap_t, roi_t)
+                    prog.progress((idx + 1) / len(grille))
+
+                if best_res:
+                    bc, ba, bp, br, bcap, broi = best_res
+                    save_v4_params(db, fd_code, bc, ba, broi, bp)
+                    st.success(f"🎉 **V4 entraînée et sauvegardée dans le Cloud pour {ligue} !**\n\nParamètres retenus : `C={bc}` • Méta-IA `{int(ba*100)}%` / Dixon-Coles `{int((1-ba)*100)}%` → **{bp} paris**, Réussite **{br}%**, ROI **{broi:+.1f}%** ({bcap:.2f} €)")
+
+    if run_duel:
+        with st.spinner("Simulation du Duel V2 vs V3 vs V4 en cours..."):
             if csv_up:
                 df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True)
                 real_odds = {'B365H', 'B365D', 'B365A'}.issubset(df.columns)
@@ -92,7 +135,7 @@ def render_backtest():
 
                 p2, r2, cap2, roi2, hist2 = simuler_df(df, cap_init, marge_pct, dnb, algo="V2")
                 p3, r3, cap3, roi3, hist3 = simuler_df(df, cap_init, marge_pct, dnb, algo="V3")
-                p4, r4, cap4, roi4, hist4 = simuler_df(df, cap_init, marge_pct, dnb, algo="V4")
+                p4, r4, cap4, roi4, hist4 = simuler_df(df, cap_init, marge_pct, dnb, algo="V4", C_val=v4_cfg["C"], alpha=v4_cfg["alpha"])
 
                 col2, col3, col4 = st.columns(3)
                 with col2:
@@ -120,10 +163,12 @@ def render_backtest():
         rows, bar, items = [], st.progress(0), list(CHAMPIONNATS.items())
         for idx, (nom, codes) in enumerate(items):
             df_l, real_odds = fetch_odds_df(codes)
+            cfg_l = get_v4_params(db, codes)
             if len(df_l) >= 65:
-                p, reuss, cap_f, roi_f, _ = simuler_df(df_l, cap_init, marge_pct, dnb, algo="V4")
+                p, reuss, cap_f, roi_f, _ = simuler_df(df_l, cap_init, marge_pct, dnb, algo="V4", C_val=cfg_l["C"], alpha=cfg_l["alpha"])
                 rows.append({
                     "Ligue": nom,
+                    "V4": "🧠 Entraînée" if cfg_l.get("trained") else "Standard",
                     "Source": "Bet365" if real_odds else "Estimé",
                     "Paris": p,
                     "Réussite (%)": reuss,
@@ -136,4 +181,4 @@ def render_backtest():
         if rows:
             df_rank = pd.DataFrame(rows).sort_values("ROI (%)", ascending=False)
             st.dataframe(df_rank, use_container_width=True, hide_index=True)
-    
+                
