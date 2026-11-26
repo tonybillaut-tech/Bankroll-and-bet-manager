@@ -72,10 +72,12 @@ def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb, bar=None):
     if bar is not None:
         bar.progress(75, text="🦖 Évolution V5 Darwin...")
     best_genome, _ = run_evolution(df.tail(200).reset_index(drop=True), n_pop=25, n_gen=12)
-    p_v5, _, _, roi_v5, _ = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=best_genome)
+    p_v5, _, cap_v5, roi_v5, hist_v5 = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=best_genome)
     if best_res:
         bc, ba, bp, broi = best_res
         db.setdefault("_v4_meta", {})[key] = {"C": float(bc), "alpha": round(float(ba), 2), "trained": True, "roi_bt": round(float(broi), 1), "paris_bt": int(bp), "darwin_genes": [round(float(g), 4) for g in best_genome], "darwin_roi": round(float(roi_v5), 1), "darwin_paris": int(p_v5)}
+        return {"roi_v4": broi, "p_v4": bp, "roi_v5": roi_v5, "p_v5": p_v5, "cap_v5": cap_v5, "hist_v5": hist_v5}
+    return None
 
 def afficher_verdict(res_dict, courbes_dict):
     st.toast("✅ Duel terminé !")
@@ -125,6 +127,7 @@ def render_backtest():
                     if len(df_l) >= 65:
                         entrainer_ligue(db, next(iter(codes_l)), df_l, cap_init, marge_pct, dnb)
                 requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=10)
+                st.session_state["last_train"] = {"ligue": ligue, "multi": True}
                 bar.progress(100, text="✅ Sauvegardé !")
                 st.rerun()
             else:
@@ -133,11 +136,24 @@ def render_backtest():
                 if isinstance(df, tuple):
                     df, _ = df
                 if len(df) >= 65:
-                    entrainer_ligue(db, "CUSTOM_CSV" if is_custom else next(iter(fd_code)), df, cap_init, marge_pct, dnb, bar=bar)
+                    bilan = entrainer_ligue(db, "CUSTOM_CSV" if is_custom else next(iter(fd_code)), df, cap_init, marge_pct, dnb, bar=bar)
                     if not is_custom:
                         requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=8)
+                    if bilan:
+                        bilan["ligue"] = ligue
+                        st.session_state["last_train"] = bilan
                     bar.progress(100, text="✅ Sauvegardé !")
                     st.rerun()
+
+        lt = st.session_state.get("last_train")
+        if isinstance(lt, dict) and lt.get("ligue") == ligue:
+            st.success(f"✅ **{ligue}** entraînée et enregistrée avec succès !")
+            if not lt.get("multi"):
+                t1, t2 = st.columns(2)
+                t1.metric("🤖 V4 Calibrée", f"{lt['roi_v4']:+.1f}%", delta=f"{lt['p_v4']} paris")
+                t2.metric("🦖 V5 Darwin", f"{lt['cap_v5']:.2f} €", delta=f"{lt['roi_v5']:+.1f}% ({lt['p_v5']}p)")
+                if lt.get("hist_v5"):
+                    st.line_chart(pd.DataFrame({"🦖 Champion V5 Darwin (€)": lt["hist_v5"]}))
         return
 
     if st.button(f"⚔️ Lancer le Duel ({ligue})", type="primary", use_container_width=True):
@@ -147,15 +163,4 @@ def render_backtest():
             for idx, nom_l in enumerate(LIGUES_EU):
                 bar.progress(int((idx / len(LIGUES_EU)) * 90), text=f"⏳ {nom_l}...")
                 codes_l = CHAMPIONNATS.get(nom_l)
-                cfg_l = get_v4_params(db, codes_l)
-                df_l, _ = fetch_odds_df(codes_l)
-                if len(df_l) >= 65:
-                    for m_n, cv, av, gv in [("V2", 0.5, 0.8, None), ("V3", 0.5, 0.8, None), ("V4", cfg_l.get("C", 0.5), cfg_l.get("alpha", 0.8), None), ("V5", 0.5, 0.8, cfg_l.get("darwin_genes"))]:
-                        pm, _, cf, _, hm = simuler_df(df_l, cap_l, marge_pct, dnb, m_n, cv, av, gv, step_v4=35)
-                        tot_p[m_n] += pm
-                        tot_g[m_n] += (cf - cap_l)
-                        hists[m_n].append(hm)
-            bar.progress(100, text="✅ Terminé !")
-            res_d = {k: (t, round(cap_init + tot_g[k], 2), round((tot_g[k]/cap_init)*100, 1), tot_p[k]) for k, t in [("V2", "⚡ V2"), ("V3", "🧬 V3"), ("V4", "🤖 V4"), ("V5", "🦖 V5")]}
-            min_l = min((len(x) for ml in hists.values() for x in ml if len(x) > 0), default=0)
-    
+        
