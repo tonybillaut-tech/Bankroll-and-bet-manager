@@ -62,8 +62,7 @@ def simuler_df(df, cap_init, marge_pct, dnb, algo="V3", C_val=0.5, alpha=0.80, d
 
 def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb, bar=None):
     best_score, best_res = -9999.0, None
-    grille = ((0.2, 0.75), (0.5, 0.80), (1.0, 0.85), (2.0, 0.90))
-    for idx, (c_try, a_try) in enumerate(grille):
+    for idx, (c_try, a_try) in enumerate(((0.2, 0.75), (0.5, 0.80), (1.0, 0.85), (2.0, 0.90))):
         if bar is not None:
             bar.progress(25 + idx * 12, text=f"🤖 Calibrage V4 ({idx + 1}/4) : C={c_try}...")
         p_t, _, _, roi_t, _ = simuler_df(df, cap_init, marge_pct, dnb, "V4", c_try, a_try, step_v4=55)
@@ -71,12 +70,24 @@ def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb, bar=None):
         if score > best_score:
             best_score, best_res = score, (c_try, a_try, p_t, roi_t)
     if bar is not None:
-        bar.progress(75, text="🦖 Évolution génétique V5 Darwin...")
+        bar.progress(75, text="🦖 Évolution V5 Darwin...")
     best_genome, _ = run_evolution(df.tail(200).reset_index(drop=True), n_pop=25, n_gen=12)
     p_v5, _, _, roi_v5, _ = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=best_genome)
     if best_res:
         bc, ba, bp, broi = best_res
         db.setdefault("_v4_meta", {})[key] = {"C": float(bc), "alpha": round(float(ba), 2), "trained": True, "roi_bt": round(float(broi), 1), "paris_bt": int(bp), "darwin_genes": [round(float(g), 4) for g in best_genome], "darwin_roi": round(float(roi_v5), 1), "darwin_paris": int(p_v5)}
+
+def afficher_verdict(res_dict, courbes_dict):
+    st.toast("✅ Duel terminé !")
+    st.markdown('<div id="resultats-duel"></div>', unsafe_allow_html=True)
+    c2, c3 = st.columns(2)
+    for col, keys in [(c2, ("V2", "V4")), (c3, ("V3", "V5"))]:
+        for k in keys:
+            titre, cap_f, roi_f, nb_p = res_dict.get(k)
+            col.metric(titre, f"{cap_f:.2f} €", delta=f"{roi_f:+.1f}% ({nb_p}p)")
+    if courbes_dict:
+        st.line_chart(pd.DataFrame(courbes_dict))
+    components.html("<script>const el = window.parent.document.getElementById('resultats-duel'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>", height=0)
 
 def render_backtest():
     st.subheader("📊 Backtest & Arène IA")
@@ -90,8 +101,7 @@ def render_backtest():
 
     custom_df = st.session_state.get("custom_df")
     has_custom = isinstance(custom_df, pd.DataFrame) and len(custom_df) >= 65
-    options = (["📂 Ligue Perso (CSV)"] if has_custom else []) + ["🌍 Toutes les ligues (Portefeuille EU)"] + list(CHAMPIONNATS.keys())
-    ligue = st.selectbox("🏟️ Cible", options)
+    ligue = st.selectbox("🏟️ Cible", (["📂 Ligue Perso (CSV)"] if has_custom else []) + ["🌍 Toutes les ligues (Portefeuille EU)"] + list(CHAMPIONNATS.keys()))
     is_all, is_custom = ligue.startswith("🌍"), ligue.startswith("📂")
     zone_prog = st.empty()
 
@@ -109,7 +119,7 @@ def render_backtest():
             if is_all:
                 bar = zone_prog.progress(0, text="Entraînement des 8 ligues EU...")
                 for idx, nom_l in enumerate(LIGUES_EU):
-                    bar.progress(int((idx / len(LIGUES_EU)) * 95), text=f"🧠 {nom_l} ({idx + 1}/{len(LIGUES_EU)})...")
+                    bar.progress(int((idx / len(LIGUES_EU)) * 95), text=f"🧠 {nom_l}...")
                     codes_l = CHAMPIONNATS.get(nom_l)
                     df_l, _ = fetch_odds_df(codes_l)
                     if len(df_l) >= 65:
@@ -118,7 +128,7 @@ def render_backtest():
                 bar.progress(100, text="✅ Sauvegardé !")
                 st.rerun()
             else:
-                bar = zone_prog.progress(10, text=f"Chargement des matchs ({ligue})...")
+                bar = zone_prog.progress(10, text=f"Chargement ({ligue})...")
                 df = custom_df.copy() if is_custom else fetch_odds_df(fd_code)
                 if isinstance(df, tuple):
                     df, _ = df
@@ -146,16 +156,6 @@ def render_backtest():
                         tot_g[m_n] += (cf - cap_l)
                         hists[m_n].append(hm)
             bar.progress(100, text="✅ Terminé !")
-            st.toast("✅ Duel Global terminé !")
-            st.markdown('<div id="resultats-duel"></div>', unsafe_allow_html=True)
-            c2, c3 = st.columns(2)
-            for col, pairs in [(c2, [("V2", "⚡ V2"), ("V4", "🤖 V4")]), (c3, [("V3", "🧬 V3"), ("V5", "🦖 V5")])]:
-                for cm, tm in pairs:
-                    col.metric(tm, f"{cap_init + tot_g[cm]:.2f} €", delta=f"{(tot_g[cm]/cap_init)*100:+.1f}% ({tot_p[cm]}p)")
-            if hists["V5"]:
-                min_l = min(len(x) for m_list in hists.values() for x in m_list if len(x) > 0)
-                courbes = {}
-                for code_m, label_c in [("V2", "⚡ V2"), ("V3", "🧬 V3"), ("V4", "🤖 V4"), ("V5", "🦖 V5")]:
-                    valides = [x[-min_l:] for x in hists[code_m] if len(x) >= min_l]
-                    if valides:
+            res_d = {k: (t, round(cap_init + tot_g[k], 2), round((tot_g[k]/cap_init)*100, 1), tot_p[k]) for k, t in [("V2", "⚡ V2"), ("V3", "🧬 V3"), ("V4", "🤖 V4"), ("V5", "🦖 V5")]}
+            min_l = min((len(x) for ml in hists.values() for x in ml if len(x) > 0), default=0)
     
