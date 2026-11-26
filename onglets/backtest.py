@@ -118,7 +118,7 @@ def render_backtest():
                 if best_res:
                     bc, ba, bp, br, bcap, broi = best_res
                     save_v4_params(db, fd_code, bc, ba, broi, bp)
-                    st.success(f"🎉 **V4 entraînée et sauvegardée pour {ligue} !**\n\nParamètres : `C={bc}` • Méta-IA `{int(ba*100)}%` / Dixon-Coles `{int((1-ba)*100)}%` → **{bp} paris**, Réussite **{br}%**, ROI **{broi:+.1f}%** ({bcap:.2f} €)")
+                    st.success(f"🎉 **V4 entraînée et sauvegardée pour {ligue} !** ROI : **{broi:+.1f}%**")
 
     if run_duel:
         with st.spinner("Simulation du Duel V2 vs V3 vs V4 en cours..."):
@@ -163,36 +163,45 @@ def render_backtest():
                 st.line_chart(chart_df)
 
     st.divider()
-    st.caption("💡 *Sauvegarde automatique après chaque championnat : si ton écran se verrouille, relance simplement le bouton pour reprendre où il s'était arrêté.*")
     g1, g2 = st.columns(2)
-    run_all_train = g1.button("🚀 Entraîner les ligues restantes", use_container_width=True)
-    run_all_rank = g2.button("🏆 Classer les 10 championnats", use_container_width=True)
+    run_cloud_rank = g1.button("🏆 Classement V4 Cloud (Instantané)", use_container_width=True)
+    run_all_rank = g2.button("🔄 Recalculer les 10 ligues", use_container_width=True)
 
-    if run_all_train:
-        grille_rapide = [(0.2, 0.70), (0.5, 0.50), (0.5, 0.80), (1.0, 0.70), (1.0, 0.90), (2.0, 0.85)]
+    if run_cloud_rank:
+        rows = []
+        for nom, codes in CHAMPIONNATS.items():
+            cfg_l = get_v4_params(db, codes)
+            rows.append({
+                "Ligue": nom,
+                "Statut": "🧠 Entraînée" if cfg_l.get("trained") else "Standard",
+                "C": cfg_l.get("C", 0.5),
+                "Méta-IA": f"{int(cfg_l.get('alpha', 0.8)*100)}%",
+                "Paris": cfg_l.get("paris_bt", 0),
+                "ROI (%)": cfg_l.get("roi_bt", 0.0)
+            })
+        df_cloud = pd.DataFrame(rows).sort_values("ROI (%)", ascending=False)
+        st.dataframe(df_cloud, use_container_width=True, hide_index=True)
+
+    if run_all_rank:
         rows, bar, items = [], st.progress(0), list(CHAMPIONNATS.items())
         status_txt = st.empty()
-
         for idx, (nom, codes) in enumerate(items):
-            cfg_exist = get_v4_params(db, codes)
-            if cfg_exist.get("trained"):
-                rows.append({"Ligue": nom, "Statut": "✅ Déjà fait", "C": cfg_exist["C"], "Méta-IA": f"{int(cfg_exist['alpha']*100)}%", "Paris": cfg_exist["paris_bt"], "ROI (%)": cfg_exist["roi_bt"]})
-                bar.progress((idx + 1) / len(items))
-                continue
-
-            status_txt.caption(f"⏳ Entraînement et sauvegarde en direct : **{nom}** ({idx + 1}/{len(items)})...")
+            status_txt.caption(f"⏳ Simulation en cours : **{nom}** ({idx + 1}/{len(items)})...")
             df_l, real_odds = fetch_odds_df(codes)
+            cfg_l = get_v4_params(db, codes)
             if len(df_l) >= 65:
-                best_res = optimiser_grille(df_l, cap_init, marge_pct, dnb, grille_rapide)
-                if best_res:
-                    bc, ba, bp, br, bcap, broi = best_res
-                    save_v4_params(db, codes, bc, ba, broi, bp)
-                    rows.append({"Ligue": nom, "Statut": "🆕 Sauvegardé", "C": bc, "Méta-IA": f"{int(ba*100)}%", "Paris": bp, "ROI (%)": broi})
+                p, reuss, cap_f, roi_f, _ = simuler_df(df_l, cap_init, marge_pct, dnb, algo="V4", C_val=cfg_l["C"], alpha=cfg_l["alpha"])
+                rows.append({
+                    "Ligue": nom,
+                    "V4": "🧠 Entraînée" if cfg_l.get("trained") else "Standard",
+                    "Source": "Bet365" if real_odds else "Estimé",
+                    "Paris": p,
+                    "Réussite (%)": reuss,
+                    "Finale (€)": cap_f,
+                    "ROI (%)": roi_f
+                })
             bar.progress((idx + 1) / len(items))
             if not real_odds and idx < len(items) - 1:
                 time.sleep(6.1)
-
         status_txt.empty()
-        if rows:
-            st.success("🎉 **Toutes les ligues sont entraînées et sauvegardées dans Supabase !**")
-        
+            
