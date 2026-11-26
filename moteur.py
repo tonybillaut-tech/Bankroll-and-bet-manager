@@ -1,7 +1,7 @@
 import pandas as pd
 import requests, os, urllib3
 import streamlit as st
-from database import load_db, save_db
+from database import load_db, save_db, SUPABASE_URL, _sb_headers
 from algo_v2 import calc_v2
 from algo_v3 import calc_v3_dixon_coles
 from algo_v4 import calc_v4_meta
@@ -50,7 +50,10 @@ def save_v4_params(db: dict, league_code, C_val: float, alpha_val: float, roi_bt
         "roi_bt": round(float(roi_bt), 1),
         "paris_bt": int(paris_bt)
     }
-    save_db(db)
+    try:
+        requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=8)
+    except Exception:
+        pass
 
 def fetch_matches(codes):
     fd_code, csv_code = codes
@@ -89,3 +92,4 @@ def fetch_matches(codes):
     return pd.DataFrame(), err_api
 
 from tracker import poisson_score, check_results
+                    
