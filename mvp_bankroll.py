@@ -27,26 +27,28 @@ if "user" not in st.session_state:
 if not st.session_state["user"]:
     tab_login, tab_reg = st.tabs(["🔐 Connexion", "📝 Créer un compte"])
     with tab_login:
-        u_in = st.text_input("Identifiant", key="login_u").strip().lower()
+        u_in = st.text_input("Identifiant", key="login_u").strip()
         p_in = st.text_input("Code PIN (4 chiffres)", type="password", max_chars=4, key="login_p").strip()
         if st.button("Se connecter", type="primary", use_container_width=True):
-            if u_in and u_in in db and u_in != "_v4_meta":
-                stored_pin = str(db[u_in].get("pin_hash", ""))
+            matched_user = next((k for k in db.keys() if k != "_v4_meta" and k.lower() == u_in.lower()), None)
+            if matched_user:
+                stored_pin = str(db[matched_user].get("pin_hash", ""))
                 if not stored_pin or stored_pin == hash_pin(p_in):
-                    st.session_state["user"] = u_in
+                    st.session_state["user"] = matched_user
                     st.rerun()
                 else:
                     st.error("Code PIN incorrect.")
             else:
                 st.error("Identifiant introuvable.")
     with tab_reg:
-        new_u = st.text_input("Choisis un identifiant", key="reg_u").strip().lower()
+        new_u = st.text_input("Choisis un identifiant", key="reg_u").strip()
         new_p = st.text_input("Choisis un code PIN (4 chiffres)", type="password", max_chars=4, key="reg_p").strip()
         cap_dep = st.number_input("Capital de départ (€)", 5.0, 50000.0, 20.0, step=5.0)
         if st.button("Créer mon compte", type="primary", use_container_width=True):
+            exists = any(k.lower() == new_u.lower() for k in db.keys())
             if len(new_u) < 3 or new_u == "_v4_meta":
                 st.warning("Choisis un identifiant d'au moins 3 caractères.")
-            elif new_u in db:
+            elif exists:
                 st.error("Cet identifiant est déjà utilisé.")
             elif len(new_p) != 4 or not new_p.isdigit():
                 st.warning("Le code PIN doit contenir exactement 4 chiffres.")
@@ -69,13 +71,12 @@ cap = get_cap(u_data)
 is_pro = bool(u_data.get("is_pro", False))
 
 c_head1, c_head2, c_head3 = st.columns(3)
-c_head1.markdown(f"👤 **{user.capitalize()}** {'👑 `VIP PRO`' if is_pro else '🆓 `Essai`'}")
+c_head1.markdown(f"👤 **{user}** {'👑 `VIP PRO`' if is_pro else '🆓 `Essai`'}")
 c_head2.markdown(f"💰 Capital : **{cap:.2f} €**")
 if c_head3.button("🚪 Quitter", use_container_width=True):
     st.session_state["user"] = ""
     st.rerun()
 
-# Détection automatique des autres onglets existants dans onglets/
 extra_tabs = []
 for _, mod_name, _ in pkgutil.iter_modules(["onglets"]):
     if mod_name not in ("analyse", "backtest", "donnees"):
@@ -88,20 +89,21 @@ for _, mod_name, _ in pkgutil.iter_modules(["onglets"]):
         except Exception:
             pass
 
-tab_labels = ["⚽ Analyse", "📊 Backtest", "📂 CSV / Perso"] + [t[0] for t in extra_tabs]
+tab_labels = ["⚽ Analyse", "📊 Backtest", "📂 CSV / Perso"] + [lbl for lbl, _, _ in extra_tabs]
 tabs = st.tabs(tab_labels)
+it_tabs = iter(tabs)
 
-with tabs[0]:
+with next(it_tabs):
     render_analyse(user, db, cap, is_pro)
 
-with tabs[1]:
+with next(it_tabs):
     render_backtest()
 
-with tabs[2]:
+with next(it_tabs):
     render_donnees()
 
-for idx, (_, mod_name, fn) in enumerate(extra_tabs):
-    with tabs[idx + 3]:
+for _, mod_name, fn in extra_tabs:
+    with next(it_tabs):
         n_params = len(inspect.signature(fn).parameters)
         if n_params == 0:
             fn()
