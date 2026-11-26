@@ -28,7 +28,7 @@ if not st.session_state["user"]:
     tab_login, tab_reg = st.tabs(["🔐 Connexion", "📝 Créer un compte"])
     with tab_login:
         u_in = st.text_input("Identifiant", key="login_u").strip()
-        p_in = st.text_input("Code PIN (4 chiffres)", type="password", max_chars=4, key="login_p").strip()
+        p_in = st.text_input("Code PIN / Mot de passe", type="password", key="login_p").strip()
         if st.button("Se connecter", type="primary", use_container_width=True):
             matched_user = next((k for k in db.keys() if k != "_v4_meta" and k.lower() == u_in.lower()), None)
             if matched_user:
@@ -42,7 +42,7 @@ if not st.session_state["user"]:
                 st.error("Identifiant introuvable.")
     with tab_reg:
         new_u = st.text_input("Choisis un identifiant", key="reg_u").strip()
-        new_p = st.text_input("Choisis un code PIN (4 chiffres)", type="password", max_chars=4, key="reg_p").strip()
+        new_p = st.text_input("Choisis un code PIN (4 à 8 caractères)", type="password", key="reg_p").strip()
         cap_dep = st.number_input("Capital de départ (€)", 5.0, 50000.0, 20.0, step=5.0)
         if st.button("Créer mon compte", type="primary", use_container_width=True):
             exists = any(k.lower() == new_u.lower() for k in db.keys())
@@ -50,8 +50,8 @@ if not st.session_state["user"]:
                 st.warning("Choisis un identifiant d'au moins 3 caractères.")
             elif exists:
                 st.error("Cet identifiant est déjà utilisé.")
-            elif len(new_p) != 4 or not new_p.isdigit():
-                st.warning("Le code PIN doit contenir exactement 4 chiffres.")
+            elif len(new_p) < 4:
+                st.warning("Le code PIN doit contenir au moins 4 caractères.")
             else:
                 db[new_u] = {
                     "capital_depart": float(cap_dep),
@@ -113,4 +113,3 @@ for _, mod_name, fn in extra_tabs:
             fn(user, db, is_pro)
         else:
             fn(user, db, is_pro, is_android)
-            
