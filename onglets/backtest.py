@@ -8,22 +8,22 @@ from algo_v5 import run_evolution
 
 LIGUES_EU = ("🇫🇷 Ligue 1", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship", "🇪🇸 La Liga", "🇮🇹 Serie A", "🇩🇪 Bundesliga", "🇵🇹 Primeira Liga", "🇳🇱 Eredivisie")
 
-def fetch_odds_df(codes, saison="2526"):
+def fetch_odds_df(codes):
     fd_code, csv_code = codes
     if csv_code not in ("CL", "BSA"):
-        for s in (saison, "2425"):
+        for s in ("2526", "2425"):
             try:
                 r = requests.get("".join(["ht", "tps:", "//", "www.football-data.co.uk/mmz4281/", s, "/", csv_code, ".csv"]), headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
                 if r.status_code == 200:
                     df = pd.read_csv(io.StringIO(r.text)).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR', 'B365H', 'B365D', 'B365A'])
                     if len(df) >= 60:
-                        return df.reset_index(drop=True), True
+                        return df.reset_index(drop=True)
             except Exception:
                 pass
     df, _ = fetch_matches(codes)
-    return df.reset_index(drop=True), False
+    return df.reset_index(drop=True)
 
-def simuler_df(df, cap_init, marge_pct, dnb, algo="V3", C_val=0.5, alpha=0.80, darwin_genes=None, step_v4=25):
+def simuler_df(df, cap_init, marge_pct, dnb, algo="V3", C_val=0.5, alpha=0.80, darwin_genes=None, step_v4=30):
     cap, mise_tot, paris, gagnes, hist = cap_init, 0.0, 0, 0, []
     has_odds = {'B365H', 'B365D', 'B365A'}.issubset(df.columns)
     mult = 1.0 + (marge_pct / 100.0)
@@ -49,13 +49,8 @@ def simuler_df(df, cap_init, marge_pct, dnb, algo="V3", C_val=0.5, alpha=0.80, d
                 mise = min(cap, ((cap * 0.05) * (cr / 2.0)) / (cr - 1.0))
                 paris += 1
                 mise_tot += mise
-                if row["FTR"] == side:
-                    cap += mise * (cr - 1.0)
-                    gagnes += 1
-                elif dnb and row["FTR"] == "D":
-                    gagnes += 1
-                else:
-                    cap -= mise
+                cap += mise * (cr - 1.0) if row["FTR"] == side else (0.0 if (dnb and row["FTR"] == "D") else -mise)
+                gagnes += 1 if (row["FTR"] == side or (dnb and row["FTR"] == "D")) else 0
                 break
         hist.append(round(cap, 2))
     return paris, round(gagnes * 100 / max(1, paris), 1), round(cap, 2), round(((cap - cap_init) / max(1.0, mise_tot)) * 100, 1), hist
@@ -64,7 +59,7 @@ def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb, bar=None):
     best_score, best_res = -9999.0, None
     for idx, (c_try, a_try) in enumerate(((0.2, 0.75), (0.5, 0.80), (1.0, 0.85), (2.0, 0.90))):
         if bar is not None:
-            bar.progress(25 + idx * 12, text=f"🤖 Calibrage V4 ({idx + 1}/4) : C={c_try}...")
+            bar.progress(25 + idx * 12, text=f"🤖 Calibrage V4 ({idx + 1}/4)...")
         p_t, _, _, roi_t, _ = simuler_df(df, cap_init, marge_pct, dnb, "V4", c_try, a_try, step_v4=55)
         score = roi_t if p_t >= 8 else (roi_t - 50.0)
         if score > best_score:
@@ -79,17 +74,8 @@ def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb, bar=None):
         return {"roi_v4": broi, "p_v4": bp, "roi_v5": roi_v5, "p_v5": p_v5, "cap_v5": cap_v5, "hist_v5": hist_v5}
     return None
 
-def afficher_verdict(res_dict, courbes_dict):
-    st.toast("✅ Duel terminé !")
-    st.markdown('<div id="resultats-duel"></div>', unsafe_allow_html=True)
-    c2, c3 = st.columns(2)
-    for col, keys in [(c2, ("V2", "V4")), (c3, ("V3", "V5"))]:
-        for k in keys:
-            titre, cap_f, roi_f, nb_p = res_dict.get(k)
-            col.metric(titre, f"{cap_f:.2f} €", delta=f"{roi_f:+.1f}% ({nb_p}p)")
-    if courbes_dict:
-        st.line_chart(pd.DataFrame(courbes_dict))
-    components.html("<script>const el = window.parent.document.getElementById('resultats-duel'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>", height=0)
+def scroll_to(anchor):
+    components.html(f"<script>const el = window.parent.document.getElementById('{anchor}'); if (el) {{ el.scrollIntoView({{behavior: 'smooth', block: 'start'}}); }}</script>", height=0)
 
 def render_backtest():
     st.subheader("📊 Backtest & Arène IA")
@@ -118,23 +104,18 @@ def render_backtest():
 
     if mode == "🧠 Entraîner":
         if st.button(f"🧠 Lancer l'entraînement ({ligue})", type="primary", use_container_width=True):
+            bar = zone_prog.progress(10, text=f"Entraînement ({ligue})...")
             if is_all:
-                bar = zone_prog.progress(0, text="Entraînement des 8 ligues EU...")
                 for idx, nom_l in enumerate(LIGUES_EU):
                     bar.progress(int((idx / len(LIGUES_EU)) * 95), text=f"🧠 {nom_l}...")
                     codes_l = CHAMPIONNATS.get(nom_l)
-                    df_l, _ = fetch_odds_df(codes_l)
+                    df_l = fetch_odds_df(codes_l)
                     if len(df_l) >= 65:
                         entrainer_ligue(db, next(iter(codes_l)), df_l, cap_init, marge_pct, dnb)
                 requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=10)
                 st.session_state["last_train"] = {"ligue": ligue, "multi": True}
-                bar.progress(100, text="✅ Sauvegardé !")
-                st.rerun()
             else:
-                bar = zone_prog.progress(10, text=f"Chargement ({ligue})...")
                 df = custom_df.copy() if is_custom else fetch_odds_df(fd_code)
-                if isinstance(df, tuple):
-                    df, _ = df
                 if len(df) >= 65:
                     bilan = entrainer_ligue(db, "CUSTOM_CSV" if is_custom else next(iter(fd_code)), df, cap_init, marge_pct, dnb, bar=bar)
                     if not is_custom:
@@ -142,24 +123,35 @@ def render_backtest():
                     if bilan:
                         bilan["ligue"] = ligue
                         st.session_state["last_train"] = bilan
-                    bar.progress(100, text="✅ Sauvegardé !")
-                    st.rerun()
+            bar.progress(100, text="✅ Sauvegardé !")
+            st.rerun()
 
         lt = st.session_state.get("last_train")
         if isinstance(lt, dict) and lt.get("ligue") == ligue:
-            st.toast("✅ Entraînement sauvegardé !")
-            st.markdown('<div id="resultats-train"></div>', unsafe_allow_html=True)
-            st.success(f"✅ **{ligue}** entraînée et enregistrée avec succès !")
+            st.markdown('<div id="res-bt"></div>', unsafe_allow_html=True)
+            st.success(f"✅ **{ligue}** entraînée et enregistrée !")
             if not lt.get("multi"):
                 t1, t2 = st.columns(2)
-                t1.metric("🤖 V4 Calibrée", f"{lt['roi_v4']:+.1f}%", delta=f"{lt['p_v4']} paris")
+                t1.metric("🤖 V4", f"{lt['roi_v4']:+.1f}%", delta=f"{lt['p_v4']} paris")
                 t2.metric("🦖 V5 Darwin", f"{lt['cap_v5']:.2f} €", delta=f"{lt['roi_v5']:+.1f}% ({lt['p_v5']}p)")
                 if lt.get("hist_v5"):
-                    st.line_chart(pd.DataFrame({"🦖 Champion V5 Darwin (€)": lt["hist_v5"]}))
-            components.html("<script>const el = window.parent.document.getElementById('resultats-train'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>", height=0)
+                    st.line_chart(pd.DataFrame({"🦖 V5 Darwin (€)": lt["hist_v5"]}))
+            scroll_to("res-bt")
         return
 
     if st.button(f"⚔️ Lancer le Duel ({ligue})", type="primary", use_container_width=True):
         bar = zone_prog.progress(10, text="Simulation en cours...")
         if is_all:
+            tot_p, tot_g, cap_l, hists = {"V2": 0, "V3": 0, "V4": 0, "V5": 0}, {"V2": 0.0, "V3": 0.0, "V4": 0.0, "V5": 0.0}, cap_init / len(LIGUES_EU), {"V2": [], "V3": [], "V4": [], "V5": []}
+            for idx, nom_l in enumerate(LIGUES_EU):
+                bar.progress(int((idx / len(LIGUES_EU)) * 90), text=f"⏳ {nom_l}...")
+                codes_l = CHAMPIONNATS.get(nom_l)
+                cfg_l = get_v4_params(db, codes_l)
+                df_l = fetch_odds_df(codes_l)
+                if len(df_l) >= 65:
+                    for m_n, cv, av, gv in [("V2", 0.5, 0.8, None), ("V3", 0.5, 0.8, None), ("V4", cfg_l.get("C", 0.5), cfg_l.get("alpha", 0.8), None), ("V5", 0.5, 0.8, cfg_l.get("darwin_genes"))]:
+                        pm, _, cf, _, hm = simuler_df(df_l, cap_l, marge_pct, dnb, m_n, cv, av, gv, step_v4=35)
+                        tot_p[m_n] += pm
+                        tot_g[m_n] += (cf - cap_l)
+                        hists[m_n].append(hm)
     
