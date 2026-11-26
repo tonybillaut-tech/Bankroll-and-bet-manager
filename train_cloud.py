@@ -1,10 +1,8 @@
 import os, io, time, requests
 import pandas as pd
 from algo_v4 import calc_v4_meta
+from database import load_db, save_db
 
-SUPABASE_ID = "tnvjjzyssyeyvipqltws"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRudmpqenlzc3lleXZpcHFsdHdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU1Njk4NTYsImV4cCI6MjExMTE0NTg1Nn0.9VXz2mIHj-jcBfZvZWoTBIF0zSsVb3aDXoKP2P0Q7F8"
-SB_URL = f"https://{SUPABASE_ID}.supabase.co/rest/v1/smartstake_users"
 FD_TOKEN = os.environ.get("FD_TOKEN", "d2193c7f2b1e47458dbed1b4e8c10732")
 
 LIGUES = {
@@ -12,28 +10,32 @@ LIGUES = {
     "BL1": "D1", "PPL": "P1", "DED": "N1", "BSA": "BSA", "CL": "CL"
 }
 
-def sb_headers():
-    return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates"}
-
 def fetch_data(fd_code, csv_code):
     if csv_code not in ["CL", "BSA"]:
         for s in ["2526", "2425"]:
             try:
-                r = requests.get(f"https://football-data.co.uk{s}/{csv_code}.csv", headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+                url = "".join(["ht", "tps:", "//", "www.football-data.co.uk/mmz4281/", s, "/", csv_code, ".csv"])
+                r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
                 if r.status_code == 200:
                     df = pd.read_csv(io.StringIO(r.text)).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR', 'B365H', 'B365D', 'B365A'])
                     if len(df) >= 65:
                         return df.reset_index(drop=True), True
             except Exception:
                 pass
-    r = requests.get(f"https://football-data.org{fd_code}/matches?status=FINISHED", headers={"X-Auth-Token": FD_TOKEN}, timeout=25)
+    url_api = "".join(["ht", "tps:", "//", "api.football-data.org/v4/competitions/", fd_code, "/matches?status=FINISHED"])
+    r = requests.get(url_api, headers={"X-Auth-Token": FD_TOKEN}, timeout=25)
     rows = []
     if r.status_code == 200:
         for m in r.json().get("matches", []):
             ft = m.get("score", {}).get("fullTime", {})
             hg, ag = ft.get("home"), ft.get("away")
             if hg is not None and ag is not None:
-                rows.append({"HomeTeam": m["homeTeam"].get("shortName") or m["homeTeam"]["name"], "AwayTeam": m["awayTeam"].get("shortName") or m["awayTeam"]["name"], "FTHG": int(hg), "FTAG": int(ag), "FTR": "H" if hg > ag else ("A" if ag > hg else "D")})
+                rows.append({
+                    "HomeTeam": m["homeTeam"].get("shortName") or m["homeTeam"]["name"],
+                    "AwayTeam": m["awayTeam"].get("shortName") or m["awayTeam"]["name"],
+                    "FTHG": int(hg), "FTAG": int(ag),
+                    "FTR": "H" if hg > ag else ("A" if ag > hg else "D")
+                })
     return pd.DataFrame(rows), False
 
 def simuler(df, C_val, alpha):
@@ -48,20 +50,42 @@ def simuler(df, C_val, alpha):
                 mise = min(cap, ((cap * 0.05) * (cr / 2.0)) / (cr - 1.0))
                 paris += 1
                 mise_tot += mise
-                if row["FTR"] == side: cap += mise * (cr - 1.0)
-                elif row["FTR"] != "D": cap -= mise
+                if row["FTR"] == side:
+                    cap += mise * (cr - 1.0)
+                elif row["FTR"] != "D":
+                    cap -= mise
                 break
     return paris, round(((cap - 100.0) / max(1.0, mise_tot)) * 100, 1)
 
 if __name__ == "__main__":
-    meta = {"capital_depart": 0.0, "paris": [], "is_pro": False, "essai": 0, "pin_hash": ""}
+    db = load_db()
+    if "_v4_meta" not in db or not isinstance(db["_v4_meta"], dict):
+        db["_v4_meta"] = {"capital_depart": 0.0, "paris": [], "is_pro": False, "essai": 0, "pin_hash": ""}
+
     grille = [(0.2, 0.70), (0.5, 0.50), (0.5, 0.80), (1.0, 0.70), (1.0, 0.90), (2.0, 0.85)]
     for fd, csv in LIGUES.items():
         df, real = fetch_data(fd, csv)
         if len(df) >= 65:
-            best = max(((c, a, *simuler(df, c, a)) for c, a in grille), key=lambda x: x[3] if x[2] >= 8 else x[3] - 50.0)
-            meta[fd] = {"C": best[0], "alpha": best[1], "trained": True, "roi_bt": best[3], "paris_bt": best[2]}
-            print(f"{fd}: C={best[0]} alpha={best[1]} ROI={best[3]}%")
+            best_score, best_res = -9999.0, None
+            for c_try, a_try in grille:
+                p_t, roi_t = simuler(df, c_try, a_try)
+                score = roi_t if p_t >= 8 else (roi_t - 50.0)
+                if score > best_score:
+                    best_score = score
+                    best_res = (c_try, a_try, p_t, roi_t)
+            if best_res:
+                bc, ba, bp, broi = best_res
+                db["_v4_meta"][fd] = {
+                    "C": float(bc),
+                    "alpha": round(float(ba), 2),
+                    "trained": True,
+                    "roi_bt": round(float(broi), 1),
+                    "paris_bt": int(bp)
+                }
+                print(f"{fd}: C={bc} alpha={ba} ROI={broi}% ({bp} paris)")
         if not real:
             time.sleep(6.1)
-    requests.post(SB_URL, headers=sb_headers(), json=[{"user_id": "_v4_meta", "capital_depart": 0.0, "paris": [], "is_pro": False, "essai": 0, "pin_hash": ""}])
+
+    save_db(db)
+    print("Sauvegarde Supabase terminee avec succes !")
+    
