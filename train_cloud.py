@@ -1,7 +1,7 @@
 import os, io, time, requests
 import pandas as pd
 from algo_v4 import calc_v4_meta
-from database import load_db, save_db
+from database import load_db, SUPABASE_URL, _sb_headers
 
 FD_TOKEN = os.environ.get("FD_TOKEN", "d2193c7f2b1e47458dbed1b4e8c10732")
 
@@ -43,7 +43,7 @@ def simuler(df, C_val, alpha):
     has_odds = {'B365H', 'B365D', 'B365A'}.issubset(df.columns)
     for i in range(60, len(df)):
         row = df.iloc[i]
-        t3v, t3n, t3d, _, _ = calc_v4_meta(df.iloc[:max(60, (i // 15) * 15)], row["HomeTeam"], row["AwayTeam"], C_val=C_val, alpha=alpha)
+        t3v, t3n, t3d, _, _ = calc_v4_meta(df.iloc[:max(60, (i // 30) * 30)], row["HomeTeam"], row["AwayTeam"], C_val=C_val, alpha=alpha)
         c1_o, cn_o, c2_o = (float(row["B365H"]), float(row["B365D"]), float(row["B365A"])) if has_odds else (2.25, 3.30, 3.10)
         for side, ct, cr in [("H", 1 + t3d / t3v, c1_o * (cn_o - 1) / cn_o), ("A", 1 + t3v / t3d, c2_o * (cn_o - 1) / cn_o)]:
             if cr > ct * 1.08 and 1.90 <= cr <= 3.50 and cap > 1.0:
@@ -60,7 +60,7 @@ def simuler(df, C_val, alpha):
 if __name__ == "__main__":
     db = load_db()
     if "_v4_meta" not in db or not isinstance(db["_v4_meta"], dict):
-        db["_v4_meta"] = {"capital_depart": 0.0, "paris": [], "is_pro": False, "essai": 0, "pin_hash": ""}
+        db["_v4_meta"] = {}
 
     grille = [(0.2, 0.70), (0.5, 0.50), (0.5, 0.80), (1.0, 0.70), (1.0, 0.90), (2.0, 0.85)]
     for fd, csv in LIGUES.items():
@@ -86,6 +86,6 @@ if __name__ == "__main__":
         if not real:
             time.sleep(6.1)
 
-    save_db(db)
-    print("Sauvegarde Supabase terminee avec succes !")
-    
+    r = requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=15)
+    print("Sauvegarde Supabase:", r.status_code)
+        
