@@ -1,7 +1,7 @@
 import os, io, time, requests
 import pandas as pd
 from algo_v4 import calc_v4_meta
-from algo_v5 import run_evolution
+from algo_v5 import run_evolution, predict_with_genome, extract_features_row
 from database import load_db, SUPABASE_URL, _sb_headers
 
 FD_TOKEN = os.environ.get("FD_TOKEN", "d2193c7f2b1e47458dbed1b4e8c10732")
@@ -58,6 +58,26 @@ def simuler_v4(df, C_val, alpha):
                 break
     return paris, round(((cap - 100.0) / max(1.0, mise_tot)) * 100, 1)
 
+def eval_darwin(df, genome, elo_dict):
+    cap, mise_tot, paris = 100.0, 0.0, 0
+    has_odds = {'B365H', 'B365D', 'B365A'}.issubset(df.columns)
+    for i in range(60, len(df)):
+        row = df.iloc[i]
+        feat = extract_features_row(df.iloc[max(0, i - 40):i], row["HomeTeam"], row["AwayTeam"], elo_dict)
+        t3v, t3n, t3d, _, _ = predict_with_genome(genome, feat)
+        c1_o, cn_o, c2_o = (float(row["B365H"]), float(row["B365D"]), float(row["B365A"])) if has_odds else (2.25, 3.30, 3.10)
+        for side, ct, cr in [("H", 1 + t3d / t3v, c1_o * (cn_o - 1) / cn_o), ("A", 1 + t3v / t3d, c2_o * (cn_o - 1) / cn_o)]:
+            if cr > ct * 1.10 and 1.90 <= cr <= 3.50 and cap > 1.0:
+                mise = min(cap, ((cap * 0.05) * (cr / 2.0)) / (cr - 1.0))
+                paris += 1
+                mise_tot += mise
+                if row["FTR"] == side:
+                    cap += mise * (cr - 1.0)
+                elif row["FTR"] != "D":
+                    cap -= mise
+                break
+    return paris, round(((cap - 100.0) / max(1.0, mise_tot)) * 100, 1)
+
 if __name__ == "__main__":
     db = load_db()
     if "_v4_meta" not in db or not isinstance(db["_v4_meta"], dict):
@@ -75,8 +95,8 @@ if __name__ == "__main__":
                     best_score = score
                     best_res = (c_try, a_try, p_t, roi_t)
 
-            # Évolution intensive de V5 Darwin dans le Cloud (60 individus x 35 générations)
-            best_genome, _ = run_evolution(df.tail(220).reset_index(drop=True), n_pop=60, n_gen=35)
+            best_genome, elo_dict = run_evolution(df.tail(220).reset_index(drop=True), n_pop=60, n_gen=35)
+            p_v5, roi_v5 = eval_darwin(df, best_genome, elo_dict)
 
             if best_res:
                 bc, ba, bp, broi = best_res
@@ -86,12 +106,14 @@ if __name__ == "__main__":
                     "trained": True,
                     "roi_bt": round(float(broi), 1),
                     "paris_bt": int(bp),
-                    "darwin_genes": [round(float(g), 4) for g in best_genome]
+                    "darwin_genes": [round(float(g), 4) for g in best_genome],
+                    "darwin_roi": round(float(roi_v5), 1),
+                    "darwin_paris": int(p_v5)
                 }
-                print(f"{fd}: V4(C={bc}, ROI={broi}%) | V5 Darwin ADN sauvegarde")
+                print(f"{fd}: V4={broi}% ({bp}p) | V5 Darwin={roi_v5}% ({p_v5}p)")
         if not real:
             time.sleep(6.1)
 
     r = requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=15)
     print("Sauvegarde Supabase:", r.status_code)
-        
+            
