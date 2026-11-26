@@ -12,5 +12,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install pandas numpy scipy scikit-learn requests streamlit
+      - run: mkdir -p .streamlit && touch .streamlit/secrets.toml
       - run: python train_cloud.py
       
