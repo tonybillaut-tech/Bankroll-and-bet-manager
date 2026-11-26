@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import math
 from datetime import datetime
@@ -84,6 +85,8 @@ def render_analyse(*args):
     dnb_mode = st.toggle("🔄 Option Sécurité : Remboursé si Nul (DNB)", value=False)
     risque_pct = st.slider("🛡️ Risque maximum par pari (% du capital)", 1.0, 10.0, 5.0, step=0.5)
 
+    zone_alerte = st.empty()
+
     if st.button("🚀 Lancer l'analyse & détecter les Value Bets", type="primary", use_container_width=True):
         if not is_pro and essai >= 3:
             st.error("🔒 **Tes 3 analyses gratuites sont épuisées.** Passe en mode **VIP Pro** dans l'onglet **💎 Abonnement** pour continuer en illimité !")
@@ -103,6 +106,10 @@ def render_analyse(*args):
         else:
             t1, tn, t2, l1, l2 = calc_v2(df, eq1, eq2)
 
+        st.toast("✅ Analyse terminée ! Résultats affichés ci-dessous.")
+        zone_alerte.success("✅ **Analyse terminée !** Découvre le verdict détaillé juste en dessous 👇")
+
+        st.markdown('<div id="resultats-analyse"></div>', unsafe_allow_html=True)
         m1, mn, m2 = st.columns(3)
         m1.metric(f"🏠 {eq1}", f"{t1:.1f}%", f"Cote juste : {100/max(1.0, t1):.2f}")
         mn.metric("🤝 Match Nul", f"{tn:.1f}%", f"Cote juste : {100/max(1.0, tn):.2f}")
@@ -160,4 +167,9 @@ def render_analyse(*args):
                     break
                 mise_sc = round(min(cap * 0.025, (cap * (risque_pct / 100.0)) * 0.4), 2)
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
-                     
+
+        components.html(
+            "<script>const el = window.parent.document.getElementById('resultats-analyse'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>",
+            height=0
+        )
+        
