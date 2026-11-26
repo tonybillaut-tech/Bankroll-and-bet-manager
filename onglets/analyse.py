@@ -5,11 +5,11 @@ from database import load_db, save_db
 from moteur import CHAMPIONNATS, fetch_matches, get_cap, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, get_v4_params
 
 def render_analyse(*args):
-    db, user, cap, is_pro = None, "", None, False
+    db, user, cap, is_pro_arg = None, "", None, False
     for a in args:
         if isinstance(a, bool):
-            is_pro = a
-        elif isinstance(a, dict) and "_v4_meta" in a:
+            is_pro_arg = a
+        elif isinstance(a, dict):
             db = a
         elif isinstance(a, str):
             user = a
@@ -20,7 +20,7 @@ def render_analyse(*args):
     u = db.get(user, {}) if isinstance(db, dict) else {}
     if cap is None:
         cap = get_cap(u)
-    is_pro = bool(u.get("is_pro", is_pro))
+    is_pro = bool(is_pro_arg or u.get("is_pro", False))
     essai = int(u.get("essai", 0))
 
     st.subheader("⚽ Analyse Prédictive & Value Bets")
@@ -140,4 +140,4 @@ def render_analyse(*args):
                     break
                 mise_sc = round(min(cap * 0.025, (cap * (risque_pct / 100.0)) * 0.4), 2)
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
-        
+                
