@@ -65,7 +65,7 @@ def save_db(data):
                     "v4_meta": {}
                 })
         if payload:
-            requests.post(f"{SUPABASE_URL}/rest/v1/smartstake_users", headers=_sb_headers(), json=payload, timeout=8)
+            requests.post(f"{SUPABASE_URL}/rest/v1/smartstake_users?on_conflict=user_id", headers=_sb_headers(), json=payload, timeout=8)
     except Exception:
         pass
 
@@ -88,4 +88,4 @@ def redeem_vip_code(code: str, user_id: str) -> bool:
     except Exception as e:
         st.warning(f"Détail : {e}")
     return False
-                               
+    
