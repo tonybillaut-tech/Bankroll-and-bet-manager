@@ -22,11 +22,27 @@ CHAMPIONNATS = {
     "🇪🇺 Ligue des Champions": ("CL", "CL")
 }
 
+def get_v4_params(db: dict, league_code: str) -> dict:
+    meta = db.get("_v4_meta", {}) if isinstance(db, dict) else {}
+    return meta.get(league_code, {"C": 0.5, "alpha": 0.80, "trained": False, "roi_bt": 0.0, "paris_bt": 0})
+
+def save_v4_params(db: dict, league_code: str, C_val: float, alpha_val: float, roi_bt: float, paris_bt: int):
+    if "_v4_meta" not in db or not isinstance(db["_v4_meta"], dict):
+        db["_v4_meta"] = {"capital_depart": 0.0, "paris": [], "is_pro": False, "essai": 0, "pin_hash": ""}
+    db["_v4_meta"][league_code] = {
+        "C": float(C_val),
+        "alpha": round(float(alpha_val), 2),
+        "trained": True,
+        "roi_bt": round(float(roi_bt), 1),
+        "paris_bt": int(paris_bt)
+    }
+    save_db(db)
+
 def fetch_matches(codes):
     fd_code, csv_code = codes
     err_api = ""
     try:
-        url = "https://" + "api.football-data.org" + f"/v4/competitions/{fd_code}/matches?status=FINISHED"
+        url = "".join(["ht", "tps:", "//", "api.football-data.org/v4/competitions/", fd_code, "/matches?status=FINISHED"])
         r = requests.get(url, headers={"X-Auth-Token": FD_TOKEN}, timeout=25, verify=False)
         if r.status_code == 200:
             rows = []
@@ -191,10 +207,10 @@ def calc_v3_dixon_coles(df, eq1, eq2):
     return (p_v / tot) * 100.0, (p_n / tot) * 100.0, (p_d / tot) * 100.0, l1, l2
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def train_meta_model(df_hash, df_sub):
+def train_meta_model(df_hash, df_sub, C_val=0.5):
     X, y = [], []
     label_map = {"H": 0, "D": 1, "A": 2}
-    start = max(25, len(df_sub) - 120)
+    start = max(25, len(df_sub) - 180)
     for i in range(start, len(df_sub)):
         row = df_sub.iloc[i]
         ftr = row["FTR"]
@@ -216,11 +232,11 @@ def train_meta_model(df_hash, df_sub):
     if len(set(y)) < 3 or len(X) < 30:
         return None
 
-    clf = LogisticRegression(C=0.5, max_iter=300)
+    clf = LogisticRegression(C=float(C_val), max_iter=300)
     clf.fit(np.array(X), np.array(y))
     return clf
 
-def calc_v4_meta(df, eq1, eq2):
+def calc_v4_meta(df, eq1, eq2, C_val=0.5, alpha=0.80):
     sub = df.dropna(subset=['HomeTeam', 'AwayTeam', 'FTR', 'FTHG', 'FTAG']).tail(250).reset_index(drop=True)
     v2_1, v2_n, v2_2, l1_2, l2_2 = calc_v2(sub, eq1, eq2)
     v3_1, v3_n, v3_2, l1_3, l2_3 = calc_v3_dixon_coles(sub, eq1, eq2)
@@ -228,20 +244,11 @@ def calc_v4_meta(df, eq1, eq2):
     if len(sub) < 55:
         return v3_1, v3_n, v3_2, l1_3, l2_3
 
-    df_hash = f"meta_{len(sub)}_{sub.iloc[-1]['HomeTeam']}_{sub.iloc[-1]['AwayTeam']}_{sub.iloc[-1]['FTHG']}"
-    clf = train_meta_model(df_hash, sub)
+    df_hash = f"meta_{C_val}_{len(sub)}_{sub.iloc[-1]['HomeTeam']}_{sub.iloc[-1]['AwayTeam']}_{sub.iloc[-1]['FTHG']}"
+    clf = train_meta_model(df_hash, sub, C_val=C_val)
     if clf is None:
         return v3_1, v3_n, v3_2, l1_3, l2_3
 
     tot2 = max(1.0, v2_1 + v2_n + v2_2)
     p2 = np.array([v2_1 / tot2, v2_n / tot2, v2_2 / tot2])
-    p3 = np.array([v3_1 / 100.0, v3_n / 100.0, v3_2 / 100.0])
-    feat = np.concatenate([p2, p3, p3 - p2, [l1_3 - l2_3]]).reshape(1, -1)
-
-    probs = clf.predict_proba(feat).flatten()
-    blend = np.maximum(1.0, (0.8 * probs + 0.2 * p3) * 100.0)
-    p_v, p_n, p_d = blend.tolist()
-    return p_v, p_n, p_d, (0.75 * l1_3 + 0.25 * l1_2), (0.75 * l2_3 + 0.25 * l2_2)
-
-from tracker import get_cap, poisson_score, check_results
-        
+                    
