@@ -125,8 +125,13 @@ def render_analyse(*args):
             st.warning("🛡️ **Aucun Value Bet détecté sur ces cotes.** La discipline consiste à passer son tour !")
 
         with st.expander("🎯 Scores Exacts les plus probables (Loi de Poisson)"):
-            scores = poisson_score(l1, l2)
-            for sc, prob in scores:
-                mise_sc = round(min(cap * 0.025, (cap * (risque_pct / 100.0)) * 0.4), 2)
-                st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
+            res_sc = poisson_score(l1, l2)
+            scores = res_sc if isinstance(res_sc, list) else [res_sc]
+            for item in scores:
+                if isinstance(item, (tuple, list)) and len(item) >= 2:
+                    sc, prob = item
+                    mise_sc = round(min(cap * 0.025, (cap * (risque_pct / 100.0)) * 0.4), 2)
+                    st.write(f"• **{sc}** : **{float(prob):.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
+                else:
+                    st.write(f"• **{item}**")
             
