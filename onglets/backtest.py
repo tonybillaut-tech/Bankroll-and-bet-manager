@@ -75,16 +75,19 @@ def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb):
 def render_backtest():
     st.subheader("📊 Backtest & Arène IA")
     db = load_db()
+    mode = st.radio("Mode", ["⚔️ Duel IA", "🧠 Entraîner", "🏆 Top 10"], horizontal=True, label_visibility="collapsed")
+
+    if mode == "🏆 Top 10":
+        rows = [{"Ligue": n, "🤖 V4 (%)": round(float(get_v4_params(db, c).get("roi_bt", 0)), 1), "🦖 V5 (%)": get_v4_params(db, c).get("darwin_roi"), "Leader": "🦖 V5" if (get_v4_params(db, c).get("darwin_roi") or -999) > float(get_v4_params(db, c).get("roi_bt", 0)) else "🤖 V4"} for n, c in CHAMPIONNATS.items()]
+        st.dataframe(pd.DataFrame(rows).sort_values("🦖 V5 (%)", ascending=False), use_container_width=True, hide_index=True)
+        return
+
     custom_df = st.session_state.get("custom_df")
     has_custom = isinstance(custom_df, pd.DataFrame) and len(custom_df) >= 65
-    ligue = st.selectbox("🏟️ Championnat", (["📂 Ligue Perso (CSV)"] if has_custom else []) + ["🌍 Toutes les ligues (Portefeuille EU)"] + list(CHAMPIONNATS.keys()))
+    options = (["📂 Ligue Perso (CSV)"] if has_custom else []) + ["🌍 Toutes les ligues (Portefeuille EU)"] + list(CHAMPIONNATS.keys())
+    ligue = st.selectbox("🏟️ Cible", options)
     is_all, is_custom = ligue.startswith("🌍"), ligue.startswith("📂")
     zone_prog = st.empty()
-
-    b1, b2, b3 = st.columns(3)
-    run_duel = b1.button("⚔️ Duel", type="primary", use_container_width=True)
-    run_train = b2.button("🧠 Entraîner", use_container_width=True)
-    run_rank = b3.button("🏆 Top 10", use_container_width=True)
 
     with st.expander("⚙️ Paramètres (100€ • Marge 10% • DNB)", expanded=False):
         c1, c2 = st.columns(2)
@@ -94,38 +97,34 @@ def render_backtest():
 
     fd_code = None if (is_all or is_custom) else CHAMPIONNATS.get(ligue)
     v4_cfg = get_v4_params(db, "CUSTOM_CSV" if is_custom else fd_code) if not is_all else {}
-    if not is_all and v4_cfg.get("trained"):
-        st.caption(f"🧠 **{ligue} :** 🤖 V4 `C={v4_cfg.get('C')}` (**{v4_cfg.get('roi_bt', 0):+.1f}%**) • 🦖 V5 : **{v4_cfg.get('darwin_roi', 0):+.1f}%**")
 
-    if run_rank:
-        rows = [{"Ligue": n, "🤖 V4 (%)": round(float(get_v4_params(db, c).get("roi_bt", 0)), 1), "🦖 V5 (%)": get_v4_params(db, c).get("darwin_roi"), "Leader": "🦖 V5" if (get_v4_params(db, c).get("darwin_roi") or -999) > float(get_v4_params(db, c).get("roi_bt", 0)) else "🤖 V4"} for n, c in CHAMPIONNATS.items()]
-        st.dataframe(pd.DataFrame(rows).sort_values("🦖 V5 (%)", ascending=False), use_container_width=True, hide_index=True)
-
-    if run_train:
-        if is_all:
-            bar = zone_prog.progress(0, text="Entraînement des 8 ligues EU...")
-            for idx, nom_l in enumerate(LIGUES_EU):
-                bar.progress(int((idx / len(LIGUES_EU)) * 95), text=f"🧠 {nom_l} ({idx + 1}/{len(LIGUES_EU)})...")
-                codes_l = CHAMPIONNATS.get(nom_l)
-                df_l, _ = fetch_odds_df(codes_l)
-                if len(df_l) >= 65:
-                    entrainer_ligue(db, next(iter(codes_l)), df_l, cap_init, marge_pct, dnb)
-            requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=10)
-            bar.progress(100, text="✅ Sauvegardé !")
-            st.rerun()
-        else:
-            bar = zone_prog.progress(20, text=f"Entraînement sur {ligue}...")
-            df = custom_df.copy() if is_custom else fetch_odds_df(fd_code)
-            if isinstance(df, tuple):
-                df, _ = df
-            if len(df) >= 65:
-                entrainer_ligue(db, "CUSTOM_CSV" if is_custom else next(iter(fd_code)), df, cap_init, marge_pct, dnb)
-                if not is_custom:
-                    requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=8)
+    if mode == "🧠 Entraîner":
+        if st.button(f"🧠 Lancer l'entraînement ({ligue})", type="primary", use_container_width=True):
+            if is_all:
+                bar = zone_prog.progress(0, text="Entraînement des 8 ligues EU...")
+                for idx, nom_l in enumerate(LIGUES_EU):
+                    bar.progress(int((idx / len(LIGUES_EU)) * 95), text=f"🧠 {nom_l} ({idx + 1}/{len(LIGUES_EU)})...")
+                    codes_l = CHAMPIONNATS.get(nom_l)
+                    df_l, _ = fetch_odds_df(codes_l)
+                    if len(df_l) >= 65:
+                        entrainer_ligue(db, next(iter(codes_l)), df_l, cap_init, marge_pct, dnb)
+                requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=10)
                 bar.progress(100, text="✅ Sauvegardé !")
                 st.rerun()
+            else:
+                bar = zone_prog.progress(20, text=f"Entraînement sur {ligue}...")
+                df = custom_df.copy() if is_custom else fetch_odds_df(fd_code)
+                if isinstance(df, tuple):
+                    df, _ = df
+                if len(df) >= 65:
+                    entrainer_ligue(db, "CUSTOM_CSV" if is_custom else next(iter(fd_code)), df, cap_init, marge_pct, dnb)
+                    if not is_custom:
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=8)
+                    bar.progress(100, text="✅ Sauvegardé !")
+                    st.rerun()
+        return
 
-    if run_duel:
+    if st.button(f"⚔️ Lancer le Duel ({ligue})", type="primary", use_container_width=True):
         bar = zone_prog.progress(10, text="Simulation en cours...")
         if is_all:
             tot_p, tot_g, cap_l, hists = {"V2": 0, "V3": 0, "V4": 0, "V5": 0}, {"V2": 0.0, "V3": 0.0, "V4": 0.0, "V5": 0.0}, cap_init / len(LIGUES_EU), {"V2": [], "V3": [], "V4": [], "V5": []}
@@ -158,4 +157,4 @@ def render_backtest():
                 col2, col3 = st.columns(2)
                 col2.metric("⚡ V2", f"{c2:.2f} €", delta=f"{r2:+.1f}% ({p2}p)")
                 col2.metric("🤖 V4", f"{c4:.2f} €", delta=f"{r4:+.1f}% ({p4}p)")
-    
+                col3.metric("🧬 V3", f"{c3:.2f} €", delta=f"{r3:+.1f}% ({p3}p)")
