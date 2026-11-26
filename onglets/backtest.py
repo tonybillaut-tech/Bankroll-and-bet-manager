@@ -5,6 +5,12 @@ from database import load_db, SUPABASE_URL, _sb_headers
 from moteur import CHAMPIONNATS, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, get_v4_params
 from algo_v5 import run_evolution
 
+LIGUES_EU = (
+    "🇫🇷 Ligue 1", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship",
+    "🇪🇸 La Liga", "🇮🇹 Serie A", "🇩🇪 Bundesliga",
+    "🇵🇹 Primeira Liga", "🇳🇱 Eredivisie"
+)
+
 def fetch_odds_df(codes, saison="2526"):
     fd_code, csv_code = codes
     if csv_code not in ("CL", "BSA"):
@@ -65,33 +71,41 @@ def simuler_df(df, cap_init, marge_pct, dnb, algo="V3", C_val=0.5, alpha=0.80, d
 def render_backtest():
     st.subheader("📊 Backtest, Duel IA & Évolution Darwin")
     db = load_db()
-    ligue = st.selectbox("🏟️ Championnat détaillé", list(CHAMPIONNATS.keys()))
-    fd_code = CHAMPIONNATS.get(ligue)
-    key = next(iter(fd_code))
-    v4_cfg = get_v4_params(db, fd_code)
-    d_genes = v4_cfg.get("darwin_genes")
+    options_ligues = ["🌍 Toutes les ligues (Portefeuille EU)"] + list(CHAMPIONNATS.keys())
+    ligue = st.selectbox("🏟️ Championnat détaillé", options_ligues)
+    is_all = ligue.startswith("🌍")
 
-    if v4_cfg.get("trained"):
-        d_roi = v4_cfg.get("darwin_roi")
-        d_txt = f" • 🦖 V5 : **{d_roi:+.1f}%**" if d_roi is not None else (" • 🦖 Darwin actif" if d_genes else "")
-        st.info(f"🧠 **{ligue} :** 🤖 V4 `C={v4_cfg.get('C')}` (**{v4_cfg.get('roi_bt', 0):+.1f}%**){d_txt}")
+    if is_all:
+        st.info("🌍 **Mode Portefeuille Global :** cumule les résultats des **8 championnats européens** avec les vraies cotes Bet365 et l'ADN Darwin propre à chaque ligue.")
+    else:
+        fd_code = CHAMPIONNATS.get(ligue)
+        key = next(iter(fd_code))
+        v4_cfg = get_v4_params(db, fd_code)
+        d_genes = v4_cfg.get("darwin_genes")
+        if v4_cfg.get("trained"):
+            d_roi = v4_cfg.get("darwin_roi")
+            d_txt = f" • 🦖 V5 : **{d_roi:+.1f}%**" if d_roi is not None else (" • 🦖 Darwin actif" if d_genes else "")
+            st.info(f"🧠 **{ligue} :** 🤖 V4 `C={v4_cfg.get('C')}` (**{v4_cfg.get('roi_bt', 0):+.1f}%**){d_txt}")
 
     c1, c2 = st.columns(2)
     cap_init = c1.number_input("💰 Capital départ (€)", 10.0, 10000.0, 100.0, step=10.0)
     marge_pct = c2.slider("🛡️ Marge Value (%)", 0, 25, 10, step=2)
     dnb = st.toggle("🔄 Simuler avec DNB (Remboursé si nul)", value=True)
-    csv_up = st.file_uploader("📂 Importer un CSV Bet365 (optionnel)", type=["csv"])
+    csv_up = None if is_all else st.file_uploader("📂 Importer un CSV Bet365 (optionnel)", type=["csv"])
 
-    b1, b2 = st.columns(2)
-    run_duel = b1.button("⚔️ Duel V2 vs V3 vs V4 vs V5", type="primary", use_container_width=True)
-    run_train = b2.button("🧠 Entraîner V4 & V5 (Ligue)", use_container_width=True)
+    if is_all:
+        run_duel = st.button("⚔️ Lancer le Duel Global (Toutes ligues EU)", type="primary", use_container_width=True)
+        run_train = False
+    else:
+        b1, b2 = st.columns(2)
+        run_duel = b1.button("⚔️ Duel V2 vs V3 vs V4 vs V5", type="primary", use_container_width=True)
+        run_train = b2.button("🧠 Entraîner V4 & V5 (Ligue)", use_container_width=True)
 
-    if run_train:
+    if run_train and not is_all:
         bar = st.progress(10, text=f"Chargement des matchs pour {ligue}...")
-        if csv_up:
-            df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True)
-        else:
-            df, _ = fetch_odds_df(fd_code)
+        df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True) if csv_up else fetch_odds_df(fd_code)
+        if isinstance(df, tuple):
+            df, _ = df
         if len(df) < 65:
             st.warning(f"Pas assez de matchs terminés ({len(df)} trouvés, 65 requis).")
         else:
@@ -99,7 +113,7 @@ def render_backtest():
             grille = [(0.2, 0.70), (0.5, 0.50), (0.5, 0.80), (1.0, 0.70), (1.0, 0.90), (2.0, 0.85)]
             best_score, best_res = -9999.0, None
             for c_try, a_try in grille:
-                p_t, r_t, cap_t, roi_t, _ = simuler_df(df, cap_init, marge_pct, dnb, "V4", c_try, a_try)
+                p_t, _, _, roi_t, _ = simuler_df(df, cap_init, marge_pct, dnb, "V4", c_try, a_try)
                 score = roi_t if p_t >= 8 else (roi_t - 50.0)
                 if score > best_score:
                     best_score = score
@@ -121,52 +135,57 @@ def render_backtest():
             bar.progress(100, text="✅ Sauvegardé !")
             st.rerun()
 
-    if run_duel:
+    if run_duel and is_all:
+        bar = st.progress(0, text="Simulation multi-ligues en cours...")
+        tot_p = {"V2": 0, "V3": 0, "V4": 0, "V5": 0}
+        tot_g = {"V2": 0.0, "V3": 0.0, "V4": 0.0, "V5": 0.0}
+        cap_par_ligue = cap_init / len(LIGUES_EU)
+        hists = {"V2": [], "V3": [], "V4": [], "V5": []}
+
+        for idx, nom_l in enumerate(LIGUES_EU):
+            bar.progress(int((idx / len(LIGUES_EU)) * 95), text=f"⏳ Analyse {nom_l} ({idx + 1}/{len(LIGUES_EU)})...")
+            codes_l = CHAMPIONNATS.get(nom_l)
+            cfg_l = get_v4_params(db, codes_l)
+            df_l, _ = fetch_odds_df(codes_l)
+            if len(df_l) >= 65:
+                for m_name, c_v, a_v, g_v in [
+                    ("V2", 0.5, 0.8, None),
+                    ("V3", 0.5, 0.8, None),
+                    ("V4", cfg_l.get("C", 0.5), cfg_l.get("alpha", 0.8), None),
+                    ("V5", 0.5, 0.8, cfg_l.get("darwin_genes"))
+                ]:
+                    p_m, _, cap_f, _, h_m = simuler_df(df_l, cap_par_ligue, marge_pct, dnb, m_name, c_v, a_v, g_v)
+                    tot_p[m_name] += p_m
+                    tot_g[m_name] += (cap_f - cap_par_ligue)
+                    hists[m_name].append(h_m)
+
+        bar.progress(100, text="✅ Portefeuille EU simulé !")
+        col2, col3 = st.columns(2)
+        with col2:
+            for code_m, titre_m in [("V2", "⚡ V2"), ("V4", "🤖 V4 Méta-IA")]:
+                cf = round(cap_init + tot_g[code_m], 2)
+                roi_g = round((tot_g[code_m] / max(1.0, cap_init)) * 100, 1)
+                st.metric(titre_m, f"{cf:.2f} €", delta=f"{roi_g:+.1f}% ({tot_p[code_m]}p)")
+        with col3:
+            for code_m, titre_m in [("V3", "🧬 V3 Dixon-Coles"), ("V5", "🦖 V5 Darwin")]:
+                cf = round(cap_init + tot_g[code_m], 2)
+                roi_g = round((tot_g[code_m] / max(1.0, cap_init)) * 100, 1)
+                st.metric(titre_m, f"{cf:.2f} €", delta=f"{roi_g:+.1f}% ({tot_p[code_m]}p)")
+
+        if hists["V5"]:
+            min_l = min(len(x) for m_list in hists.values() for x in m_list if len(x) > 0)
+            courbes = {}
+            for code_m, label_c in [("V2", "⚡ V2"), ("V3", "🧬 V3"), ("V4", "🤖 V4"), ("V5", "🦖 V5 Darwin")]:
+                valides = [x[-min_l:] for x in hists[code_m] if len(x) >= min_l]
+                if valides:
+                    courbes[label_c] = [round(sum(col), 2) for col in zip(*valides)]
+            if courbes:
+                st.line_chart(pd.DataFrame(courbes))
+
+    elif run_duel and not is_all:
         bar = st.progress(10, text="Chargement des données...")
         if csv_up:
             df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True)
         else:
             df, _ = fetch_odds_df(fd_code)
-        if len(df) < 65:
-            st.warning(f"Pas assez de matchs terminés ({len(df)} trouvés, 65 requis).")
-        else:
-            bar.progress(25, text="⚡ Simulation V2...")
-            p2, r2, cap2, roi2, h2 = simuler_df(df, cap_init, marge_pct, dnb, "V2")
-            bar.progress(50, text="🧬 Simulation V3 Dixon-Coles...")
-            p3, r3, cap3, roi3, h3 = simuler_df(df, cap_init, marge_pct, dnb, "V3")
-            bar.progress(75, text="🤖 Simulation V4 Méta-IA...")
-            p4, r4, cap4, roi4, h4 = simuler_df(df, cap_init, marge_pct, dnb, "V4", v4_cfg.get("C", 0.5), v4_cfg.get("alpha", 0.8))
-            bar.progress(90, text="🦖 Simulation V5 Darwin...")
-            p5, r5, cap5, roi5, h5 = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=d_genes)
-            bar.progress(100, text="✅ Duel terminé !")
-
-            col2, col3 = st.columns(2)
-            with col2:
-                st.metric("⚡ V2", f"{cap2:.2f} €", delta=f"{roi2:+.1f}% ({p2}p)")
-                st.metric("🤖 V4 Méta-IA", f"{cap4:.2f} €", delta=f"{roi4:+.1f}% ({p4}p)")
-            with col3:
-                st.metric("🧬 V3 Dixon-Coles", f"{cap3:.2f} €", delta=f"{roi3:+.1f}% ({p3}p)")
-                st.metric("🦖 V5 Darwin", f"{cap5:.2f} €", delta=f"{roi5:+.1f}% ({p5}p)")
-
-            m = min(len(h2), len(h3), len(h4), len(h5))
-            st.line_chart(pd.DataFrame({"⚡ V2": h2[-m:], "🧬 V3": h3[-m:], "🤖 V4": h4[-m:], "🦖 V5 Darwin": h5[-m:]}))
-
-    st.divider()
-    if st.button("🏆 Classement V4 vs V5 Darwin (Instantané)", use_container_width=True):
-        rows = []
-        for n, c in CHAMPIONNATS.items():
-            cfg = get_v4_params(db, c)
-            r4 = float(cfg.get("roi_bt", 0.0))
-            r5 = cfg.get("darwin_roi")
-            best_r = max(r4, float(r5)) if r5 is not None else r4
-            leader = "🦖 V5" if (r5 is not None and float(r5) > r4) else "🤖 V4"
-            rows.append({
-                "Ligue": n,
-                "🤖 V4 (%)": round(r4, 1),
-                "🦖 V5 (%)": round(float(r5), 1) if r5 is not None else None,
-                "Leader": leader,
-                "_sort": best_r
-            })
-        df_rank = pd.DataFrame(rows).sort_values("_sort", ascending=False).drop(columns=["_sort"])
-        st.dataframe(df_rank, use_container_width=True, hide_index=True)
-        
+    
