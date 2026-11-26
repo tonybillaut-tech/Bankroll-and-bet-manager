@@ -63,8 +63,9 @@ def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb, bar=None):
         if score > best_score:
             best_score, best_res = score, (c_try, a_try, p_t, roi_t)
     if bar is not None:
-        bar.progress(75, text="🦖 Évolution V5 Darwin...")
-    best_genome, _ = run_evolution(df.tail(200).reset_index(drop=True), n_pop=45, n_gen=22)
+        bar.progress(75, text="🦖 Évolution V5 Darwin (Warm Start)...")
+    seed_g = old_cfg.get("darwin_genes")
+    best_genome, _ = run_evolution(df.tail(200).reset_index(drop=True), n_pop=45, n_gen=22, seed_genome=seed_g)
     p_v5, _, cap_v5, roi_v5, hist_v5 = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=best_genome)
     if best_res:
         bc, ba, bp, broi = best_res
@@ -79,4 +80,4 @@ def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb, bar=None):
         db["_v4_meta"][key] = {"C": float(bc), "alpha": round(float(ba), 2), "trained": True, "roi_bt": round(float(broi), 1), "paris_bt": int(bp), "darwin_genes": genes_save, "darwin_roi": roi5_save, "darwin_paris": p5_save}
         return {"roi_v4": broi, "p_v4": bp, "roi_v5": roi5_save, "p_v5": p5_save, "cap_v5": cap_v5, "hist_v5": hist_v5, "kept_old": kept_old, "try_v5": roi_v5}
     return None
-          
+        
