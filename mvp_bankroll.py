@@ -1,5 +1,5 @@
 import streamlit as st
-import importlib, pkgutil, inspect
+import importlib, pkgutil, inspect, hashlib, hmac
 from database import load_db, save_db, hash_pin
 from moteur import get_cap
 from onglets.analyse import render_analyse
@@ -9,6 +9,11 @@ from onglets.donnees import render_donnees
 st.set_page_config(page_title="SmartStake — Value Bet & Bankroll IA", page_icon="⚽", layout="centered")
 is_android = st.query_params.get("platform", "") == "android"
 
+def make_token(username: str, pin_hash: str) -> str:
+    secret = st.secrets.get("SUPABASE_KEY", "smartstake_secret_2026").encode("utf-8")
+    msg = f"{username.lower()}:{pin_hash}".encode("utf-8")
+    return hmac.new(secret, msg, hashlib.sha256).hexdigest()[:24]
+
 st.markdown("""
 <style>
 .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
@@ -17,24 +22,39 @@ div[data-testid="stMetric"] { background: #161b22; padding: 10px 14px; border-ra
 """, unsafe_allow_html=True)
 
 st.title("⚽ SmartStake")
-st.caption("v11.0 • Moteurs V2, V3 Dixon-Coles, V4 Méta-IA & 🦖 V5 Darwin")
+st.caption("v11.1 • Moteurs V2, V3 Dixon-Coles, V4 Méta-IA & 🦖 V5 Darwin")
 
 db = load_db()
 
 if "user" not in st.session_state:
     st.session_state["user"] = ""
 
+# Reconnexion automatique via jeton sécurisé mémorisé
+if not st.session_state["user"]:
+    saved_u = st.query_params.get("u", "")
+    saved_tok = st.query_params.get("t", "")
+    if saved_u and saved_tok and isinstance(db, dict):
+        matched = next((k for k in db.keys() if k != "_v4_meta" and k.lower() == saved_u.lower()), None)
+        if matched:
+            p_hash = str(db[matched].get("pin_hash", ""))
+            if hmac.compare_digest(saved_tok, make_token(matched, p_hash)):
+                st.session_state["user"] = matched
+
 if not st.session_state["user"]:
     tab_login, tab_reg = st.tabs(["🔐 Connexion", "📝 Créer un compte"])
     with tab_login:
         u_in = st.text_input("Identifiant", key="login_u").strip()
         p_in = st.text_input("Code PIN / Mot de passe", type="password", key="login_p").strip()
+        stay_logged = st.checkbox("🔒 Rester connecté sur cet appareil", value=True)
         if st.button("Se connecter", type="primary", use_container_width=True):
             matched_user = next((k for k in db.keys() if k != "_v4_meta" and k.lower() == u_in.lower()), None)
             if matched_user:
                 stored_pin = str(db[matched_user].get("pin_hash", ""))
                 if not stored_pin or stored_pin == hash_pin(p_in):
                     st.session_state["user"] = matched_user
+                    if stay_logged:
+                        st.query_params["u"] = matched_user
+                        st.query_params["t"] = make_token(matched_user, stored_pin)
                     st.rerun()
                 else:
                     st.error("Code PIN incorrect.")
@@ -53,15 +73,18 @@ if not st.session_state["user"]:
             elif len(new_p) < 4:
                 st.warning("Le code PIN doit contenir au moins 4 caractères.")
             else:
+                p_h = hash_pin(new_p)
                 db[new_u] = {
                     "capital_depart": float(cap_dep),
                     "paris": [],
                     "is_pro": False,
                     "essai": 0,
-                    "pin_hash": hash_pin(new_p)
+                    "pin_hash": p_h
                 }
                 save_db(db)
                 st.session_state["user"] = new_u
+                st.query_params["u"] = new_u
+                st.query_params["t"] = make_token(new_u, p_h)
                 st.rerun()
     st.stop()
 
@@ -75,6 +98,10 @@ c_head1.markdown(f"👤 **{user}** {'👑 `VIP PRO`' if is_pro else '🆓 `Essai
 c_head2.markdown(f"💰 Capital : **{cap:.2f} €**")
 if c_head3.button("🚪 Quitter", use_container_width=True):
     st.session_state["user"] = ""
+    if "u" in st.query_params:
+        del st.query_params["u"]
+    if "t" in st.query_params:
+        del st.query_params["t"]
     st.rerun()
 
 extra_tabs = []
@@ -113,3 +140,4 @@ for _, mod_name, fn in extra_tabs:
             fn(db, user, cap)
         else:
             fn(db, user, is_pro, is_android)
+                    
