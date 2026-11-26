@@ -22,6 +22,18 @@ CHAMPIONNATS = {
     "🇪🇺 Ligue des Champions": ("CL", "CL")
 }
 
+def get_cap(user_data: dict) -> float:
+    cap = float(user_data.get("capital_depart", 20.0))
+    for p in user_data.get("paris", []):
+        st_p = str(p.get("Statut", ""))
+        mise = float(p.get("Mise (€)", 0.0))
+        cote = float(p.get("Cote", 1.0))
+        if "✅" in st_p or "Gagné" in st_p:
+            cap += mise * (cote - 1.0)
+        elif "❌" in st_p or "Perdu" in st_p:
+            cap -= mise
+    return round(cap, 2)
+
 def get_v4_params(db: dict, league_code: str) -> dict:
     meta = db.get("_v4_meta", {}) if isinstance(db, dict) else {}
     return meta.get(league_code, {"C": 0.5, "alpha": 0.80, "trained": False, "roi_bt": 0.0, "paris_bt": 0})
