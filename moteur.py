@@ -5,6 +5,7 @@ from sklearn.linear_model import LogisticRegression
 import requests, os, urllib3, math
 import streamlit as st
 from database import load_db, save_db
+from tracker import get_cap, poisson_score, check_results
 
 urllib3.disable_warnings()
 FD_TOKEN = st.secrets.get("FD_TOKEN", "d2193c7f2b1e47458dbed1b4e8c10732")
@@ -250,5 +251,4 @@ def calc_v4_meta(df, eq1, eq2, C_val=0.5, alpha=0.80):
         return v3_1, v3_n, v3_2, l1_3, l2_3
 
     tot2 = max(1.0, v2_1 + v2_n + v2_2)
-    p2 = np.array([v2_1 / tot2, v2_n / tot2, v2_2 / tot2])
-                    
+        
