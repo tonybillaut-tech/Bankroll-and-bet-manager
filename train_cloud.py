@@ -87,6 +87,7 @@ if __name__ == "__main__":
     for fd, csv in LIGUES.items():
         df, real = fetch_data(fd, csv)
         if len(df) >= 65:
+            old_cfg = db["_v4_meta"].get(fd, {})
             best_score, best_res = -9999.0, None
             for c_try, a_try in grille:
                 p_t, roi_t = simuler_v4(df, c_try, a_try)
@@ -100,20 +101,39 @@ if __name__ == "__main__":
 
             if best_res:
                 bc, ba, bp, broi = best_res
+                old_v4_roi = old_cfg.get("roi_bt")
+                if old_v4_roi is not None and float(old_v4_roi) > float(broi) and old_cfg.get("trained"):
+                    bc = old_cfg.get("C", bc)
+                    ba = old_cfg.get("alpha", ba)
+                    bp = old_cfg.get("paris_bt", bp)
+                    broi = float(old_v4_roi)
+
+                old_v5_roi = old_cfg.get("darwin_roi")
+                if old_v5_roi is not None and float(old_v5_roi) > float(roi_v5) and old_cfg.get("darwin_genes"):
+                    final_genes = old_cfg.get("darwin_genes")
+                    final_v5_roi = float(old_v5_roi)
+                    final_v5_p = old_cfg.get("darwin_paris", p_v5)
+                    tag = "Champion conserve"
+                else:
+                    final_genes = [round(float(g), 4) for g in best_genome]
+                    final_v5_roi = round(float(roi_v5), 1)
+                    final_v5_p = int(p_v5)
+                    tag = "Nouveau record"
+
                 db["_v4_meta"][fd] = {
                     "C": float(bc),
                     "alpha": round(float(ba), 2),
                     "trained": True,
                     "roi_bt": round(float(broi), 1),
                     "paris_bt": int(bp),
-                    "darwin_genes": [round(float(g), 4) for g in best_genome],
-                    "darwin_roi": round(float(roi_v5), 1),
-                    "darwin_paris": int(p_v5)
+                    "darwin_genes": final_genes,
+                    "darwin_roi": final_v5_roi,
+                    "darwin_paris": final_v5_p
                 }
-                print(f"{fd}: V4={broi}% ({bp}p) | V5 Darwin={roi_v5}% ({p_v5}p)")
+                print(f"{fd}: V4={broi}% | V5={final_v5_roi}% ({tag})")
         if not real:
             time.sleep(6.1)
 
     r = requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=15)
     print("Sauvegarde Supabase:", r.status_code)
-            
+    
