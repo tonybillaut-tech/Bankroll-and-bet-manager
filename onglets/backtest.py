@@ -86,7 +86,7 @@ def render_backtest():
     v4_cfg = get_v4_params(db, fd_code)
 
     if v4_cfg.get("trained"):
-        st.info(f"🧠 **V4 déjà entraînée sur {ligue} :** `C={v4_cfg['C']}` | Poids Méta-IA `{int(v4_cfg['alpha']*100)}%` | ROI Backtest : **{v4_cfg['roi_bt']:+.1f}%** ({v4_cfg['paris_bt']} paris)")
+        st.info(f"🧠 **V4 entraînée sur {ligue} :** `C={v4_cfg['C']}` | Poids Méta-IA `{int(v4_cfg['alpha']*100)}%` | ROI Backtest : **{v4_cfg['roi_bt']:+.1f}%** ({v4_cfg['paris_bt']} paris)")
 
     c1, c2 = st.columns(2)
     cap_init = c1.number_input("💰 Capital départ (€)", 10.0, 10000.0, 100.0, step=10.0)
@@ -99,7 +99,7 @@ def render_backtest():
     run_train = b2.button("🧠 Entraîner V4 (Cette ligue)", use_container_width=True)
 
     if run_train:
-        with st.spinner(f"Optimisation et entraînement de V4 sur {ligue}..."):
+        with st.spinner(f"Optimisation de V4 sur {ligue} (garde l'écran allumé ~15s)..."):
             if csv_up:
                 df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True)
             else:
@@ -163,43 +163,36 @@ def render_backtest():
                 st.line_chart(chart_df)
 
     st.divider()
+    st.caption("💡 *Sauvegarde automatique après chaque championnat : si ton écran se verrouille, relance simplement le bouton pour reprendre où il s'était arrêté.*")
     g1, g2 = st.columns(2)
-    run_all_train = g1.button("🚀 Entraîner V4 sur les 10 ligues", use_container_width=True)
+    run_all_train = g1.button("🚀 Entraîner les ligues restantes", use_container_width=True)
     run_all_rank = g2.button("🏆 Classer les 10 championnats", use_container_width=True)
 
     if run_all_train:
         grille_rapide = [(0.2, 0.70), (0.5, 0.50), (0.5, 0.80), (1.0, 0.70), (1.0, 0.90), (2.0, 0.85)]
         rows, bar, items = [], st.progress(0), list(CHAMPIONNATS.items())
         status_txt = st.empty()
-        if "_v4_meta" not in db or not isinstance(db["_v4_meta"], dict):
-            db["_v4_meta"] = {"capital_depart": 0.0, "paris": [], "is_pro": False, "essai": 0, "pin_hash": ""}
 
         for idx, (nom, codes) in enumerate(items):
-            status_txt.caption(f"⏳ Entraînement en cours : **{nom}** ({idx + 1}/{len(items)})...")
+            cfg_exist = get_v4_params(db, codes)
+            if cfg_exist.get("trained"):
+                rows.append({"Ligue": nom, "Statut": "✅ Déjà fait", "C": cfg_exist["C"], "Méta-IA": f"{int(cfg_exist['alpha']*100)}%", "Paris": cfg_exist["paris_bt"], "ROI (%)": cfg_exist["roi_bt"]})
+                bar.progress((idx + 1) / len(items))
+                continue
+
+            status_txt.caption(f"⏳ Entraînement et sauvegarde en direct : **{nom}** ({idx + 1}/{len(items)})...")
             df_l, real_odds = fetch_odds_df(codes)
             if len(df_l) >= 65:
                 best_res = optimiser_grille(df_l, cap_init, marge_pct, dnb, grille_rapide)
                 if best_res:
                     bc, ba, bp, br, bcap, broi = best_res
-                    db["_v4_meta"][codes] = {
-                        "C": float(bc),
-                        "alpha": round(float(ba), 2),
-                        "trained": True,
-                        "roi_bt": round(float(broi), 1),
-                        "paris_bt": int(bp)
-                    }
-                    rows.append({
-                        "Ligue": nom,
-                        "C": bc,
-                        "Méta-IA": f"{int(ba*100)}%",
-                        "Paris": bp,
-                        "Réussite (%)": br,
-                        "ROI (%)": broi
-                    })
+                    save_v4_params(db, codes, bc, ba, broi, bp)
+                    rows.append({"Ligue": nom, "Statut": "🆕 Sauvegardé", "C": bc, "Méta-IA": f"{int(ba*100)}%", "Paris": bp, "ROI (%)": broi})
             bar.progress((idx + 1) / len(items))
             if not real_odds and idx < len(items) - 1:
                 time.sleep(6.1)
 
-        save_db(db)
         status_txt.empty()
+        if rows:
+            st.success("🎉 **Toutes les ligues sont entraînées et sauvegardées dans Supabase !**")
         
