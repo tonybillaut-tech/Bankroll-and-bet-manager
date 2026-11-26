@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests, io, time
-from database import load_db
+from database import load_db, save_db
 from moteur import CHAMPIONNATS, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, get_v4_params, save_v4_params
 
 def fetch_odds_df(codes, saison="2526"):
@@ -66,6 +66,18 @@ def simuler_df(df, cap_init, marge_pct, dnb, algo="V3", C_val=0.5, alpha=0.80):
     reussite = round(gagnes * 100 / max(1, paris), 1)
     return paris, reussite, round(cap, 2), roi, hist
 
+def optimiser_grille(df, cap_init, marge_pct, dnb, grille, prog_bar=None):
+    best_score, best_res = -9999.0, None
+    for idx, (c_try, a_try) in enumerate(grille):
+        p_t, r_t, cap_t, roi_t, _ = simuler_df(df, cap_init, marge_pct, dnb, algo="V4", C_val=c_try, alpha=a_try)
+        score = roi_t if p_t >= 8 else (roi_t - 50.0)
+        if score > best_score:
+            best_score = score
+            best_res = (c_try, a_try, p_t, r_t, cap_t, roi_t)
+        if prog_bar is not None:
+            prog_bar.progress((idx + 1) / len(grille))
+    return best_res
+
 def render_backtest():
     st.subheader("📊 Backtest, Duel IA & Entraînement V4")
     db = load_db()
@@ -84,7 +96,7 @@ def render_backtest():
 
     b1, b2 = st.columns(2)
     run_duel = b1.button("⚔️ Duel V2 vs V3 vs V4", type="primary", use_container_width=True)
-    run_train = b2.button("🧠 Entraîner V4 & Sauvegarder", use_container_width=True)
+    run_train = b2.button("🧠 Entraîner V4 (Cette ligue)", use_container_width=True)
 
     if run_train:
         with st.spinner(f"Optimisation et entraînement de V4 sur {ligue}..."):
@@ -96,26 +108,17 @@ def render_backtest():
             if len(df) < 65:
                 st.warning("Pas assez de matchs terminés pour entraîner V4 (65 minimum requis).")
             else:
-                grille = [
+                grille_complete = [
                     (0.2, 0.50), (0.2, 0.75), (0.2, 0.90),
                     (0.5, 0.50), (0.5, 0.75), (0.5, 0.90),
                     (1.0, 0.50), (1.0, 0.75), (1.0, 0.90),
                     (2.0, 0.60), (2.0, 0.80), (2.0, 0.95)
                 ]
-                best_score, best_res = -9999.0, None
-                prog = st.progress(0)
-                for idx, (c_try, a_try) in enumerate(grille):
-                    p_t, r_t, cap_t, roi_t, _ = simuler_df(df, cap_init, marge_pct, dnb, algo="V4", C_val=c_try, alpha=a_try)
-                    score = roi_t if p_t >= 8 else (roi_t - 50.0)
-                    if score > best_score:
-                        best_score = score
-                        best_res = (c_try, a_try, p_t, r_t, cap_t, roi_t)
-                    prog.progress((idx + 1) / len(grille))
-
+                best_res = optimiser_grille(df, cap_init, marge_pct, dnb, grille_complete, st.progress(0))
                 if best_res:
                     bc, ba, bp, br, bcap, broi = best_res
                     save_v4_params(db, fd_code, bc, ba, broi, bp)
-                    st.success(f"🎉 **V4 entraînée et sauvegardée dans le Cloud pour {ligue} !**\n\nParamètres retenus : `C={bc}` • Méta-IA `{int(ba*100)}%` / Dixon-Coles `{int((1-ba)*100)}%` → **{bp} paris**, Réussite **{br}%**, ROI **{broi:+.1f}%** ({bcap:.2f} €)")
+                    st.success(f"🎉 **V4 entraînée et sauvegardée pour {ligue} !**\n\nParamètres : `C={bc}` • Méta-IA `{int(ba*100)}%` / Dixon-Coles `{int((1-ba)*100)}%` → **{bp} paris**, Réussite **{br}%**, ROI **{broi:+.1f}%** ({bcap:.2f} €)")
 
     if run_duel:
         with st.spinner("Simulation du Duel V2 vs V3 vs V4 en cours..."):
@@ -159,26 +162,44 @@ def render_backtest():
                 })
                 st.line_chart(chart_df)
 
-    if st.button("🏆 Classer les 10 championnats (Audit V4 Méta-IA)", use_container_width=True):
+    st.divider()
+    g1, g2 = st.columns(2)
+    run_all_train = g1.button("🚀 Entraîner V4 sur les 10 ligues", use_container_width=True)
+    run_all_rank = g2.button("🏆 Classer les 10 championnats", use_container_width=True)
+
+    if run_all_train:
+        grille_rapide = [(0.2, 0.70), (0.5, 0.50), (0.5, 0.80), (1.0, 0.70), (1.0, 0.90), (2.0, 0.85)]
         rows, bar, items = [], st.progress(0), list(CHAMPIONNATS.items())
+        status_txt = st.empty()
+        if "_v4_meta" not in db or not isinstance(db["_v4_meta"], dict):
+            db["_v4_meta"] = {"capital_depart": 0.0, "paris": [], "is_pro": False, "essai": 0, "pin_hash": ""}
+
         for idx, (nom, codes) in enumerate(items):
+            status_txt.caption(f"⏳ Entraînement en cours : **{nom}** ({idx + 1}/{len(items)})...")
             df_l, real_odds = fetch_odds_df(codes)
-            cfg_l = get_v4_params(db, codes)
             if len(df_l) >= 65:
-                p, reuss, cap_f, roi_f, _ = simuler_df(df_l, cap_init, marge_pct, dnb, algo="V4", C_val=cfg_l["C"], alpha=cfg_l["alpha"])
-                rows.append({
-                    "Ligue": nom,
-                    "V4": "🧠 Entraînée" if cfg_l.get("trained") else "Standard",
-                    "Source": "Bet365" if real_odds else "Estimé",
-                    "Paris": p,
-                    "Réussite (%)": reuss,
-                    "Finale (€)": cap_f,
-                    "ROI (%)": roi_f
-                })
+                best_res = optimiser_grille(df_l, cap_init, marge_pct, dnb, grille_rapide)
+                if best_res:
+                    bc, ba, bp, br, bcap, broi = best_res
+                    db["_v4_meta"][codes] = {
+                        "C": float(bc),
+                        "alpha": round(float(ba), 2),
+                        "trained": True,
+                        "roi_bt": round(float(broi), 1),
+                        "paris_bt": int(bp)
+                    }
+                    rows.append({
+                        "Ligue": nom,
+                        "C": bc,
+                        "Méta-IA": f"{int(ba*100)}%",
+                        "Paris": bp,
+                        "Réussite (%)": br,
+                        "ROI (%)": broi
+                    })
             bar.progress((idx + 1) / len(items))
             if not real_odds and idx < len(items) - 1:
                 time.sleep(6.1)
-        if rows:
-            df_rank = pd.DataFrame(rows).sort_values("ROI (%)", ascending=False)
-            st.dataframe(df_rank, use_container_width=True, hide_index=True)
-                
+
+        save_db(db)
+        status_txt.empty()
+        
