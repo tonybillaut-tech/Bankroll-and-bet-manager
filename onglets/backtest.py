@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import requests, io
 from database import load_db, SUPABASE_URL, _sb_headers
@@ -59,14 +60,19 @@ def simuler_df(df, cap_init, marge_pct, dnb, algo="V3", C_val=0.5, alpha=0.80, d
         hist.append(round(cap, 2))
     return paris, round(gagnes * 100 / max(1, paris), 1), round(cap, 2), round(((cap - cap_init) / max(1.0, mise_tot)) * 100, 1), hist
 
-def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb):
+def entrainer_ligue(db, key, df, cap_init, marge_pct, dnb, bar=None):
     best_score, best_res = -9999.0, None
-    for c_try, a_try in ((0.2, 0.75), (0.5, 0.80), (1.0, 0.85), (2.0, 0.90)):
-        p_t, _, _, roi_t, _ = simuler_df(df, cap_init, marge_pct, dnb, "V4", c_try, a_try, step_v4=45)
+    grille = ((0.2, 0.75), (0.5, 0.80), (1.0, 0.85), (2.0, 0.90))
+    for idx, (c_try, a_try) in enumerate(grille):
+        if bar is not None:
+            bar.progress(25 + idx * 12, text=f"🤖 Calibrage V4 ({idx + 1}/4) : C={c_try}...")
+        p_t, _, _, roi_t, _ = simuler_df(df, cap_init, marge_pct, dnb, "V4", c_try, a_try, step_v4=55)
         score = roi_t if p_t >= 8 else (roi_t - 50.0)
         if score > best_score:
             best_score, best_res = score, (c_try, a_try, p_t, roi_t)
-    best_genome, _ = run_evolution(df.tail(220).reset_index(drop=True), n_pop=40, n_gen=18)
+    if bar is not None:
+        bar.progress(75, text="🦖 Évolution génétique V5 Darwin...")
+    best_genome, _ = run_evolution(df.tail(200).reset_index(drop=True), n_pop=25, n_gen=12)
     p_v5, _, _, roi_v5, _ = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=best_genome)
     if best_res:
         bc, ba, bp, broi = best_res
@@ -112,12 +118,12 @@ def render_backtest():
                 bar.progress(100, text="✅ Sauvegardé !")
                 st.rerun()
             else:
-                bar = zone_prog.progress(20, text=f"Entraînement sur {ligue}...")
+                bar = zone_prog.progress(10, text=f"Chargement des matchs ({ligue})...")
                 df = custom_df.copy() if is_custom else fetch_odds_df(fd_code)
                 if isinstance(df, tuple):
                     df, _ = df
                 if len(df) >= 65:
-                    entrainer_ligue(db, "CUSTOM_CSV" if is_custom else next(iter(fd_code)), df, cap_init, marge_pct, dnb)
+                    entrainer_ligue(db, "CUSTOM_CSV" if is_custom else next(iter(fd_code)), df, cap_init, marge_pct, dnb, bar=bar)
                     if not is_custom:
                         requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=8)
                     bar.progress(100, text="✅ Sauvegardé !")
@@ -140,21 +146,16 @@ def render_backtest():
                         tot_g[m_n] += (cf - cap_l)
                         hists[m_n].append(hm)
             bar.progress(100, text="✅ Terminé !")
+            st.toast("✅ Duel Global terminé !")
+            st.markdown('<div id="resultats-duel"></div>', unsafe_allow_html=True)
             c2, c3 = st.columns(2)
             for col, pairs in [(c2, [("V2", "⚡ V2"), ("V4", "🤖 V4")]), (c3, [("V3", "🧬 V3"), ("V5", "🦖 V5")])]:
                 for cm, tm in pairs:
                     col.metric(tm, f"{cap_init + tot_g[cm]:.2f} €", delta=f"{(tot_g[cm]/cap_init)*100:+.1f}% ({tot_p[cm]}p)")
-        else:
-            df = custom_df.copy() if is_custom else fetch_odds_df(fd_code)
-            if isinstance(df, tuple):
-                df, _ = df
-            if len(df) >= 65:
-                p2, _, c2, r2, h2 = simuler_df(df, cap_init, marge_pct, dnb, "V2")
-                p3, _, c3, r3, h3 = simuler_df(df, cap_init, marge_pct, dnb, "V3")
-                p4, _, c4, r4, h4 = simuler_df(df, cap_init, marge_pct, dnb, "V4", v4_cfg.get("C", 0.5), v4_cfg.get("alpha", 0.8))
-                p5, _, c5, r5, h5 = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=v4_cfg.get("darwin_genes"))
-                bar.progress(100, text="✅ Terminé !")
-                col2, col3 = st.columns(2)
-                col2.metric("⚡ V2", f"{c2:.2f} €", delta=f"{r2:+.1f}% ({p2}p)")
-                col2.metric("🤖 V4", f"{c4:.2f} €", delta=f"{r4:+.1f}% ({p4}p)")
-                col3.metric("🧬 V3", f"{c3:.2f} €", delta=f"{r3:+.1f}% ({p3}p)")
+            if hists["V5"]:
+                min_l = min(len(x) for m_list in hists.values() for x in m_list if len(x) > 0)
+                courbes = {}
+                for code_m, label_c in [("V2", "⚡ V2"), ("V3", "🧬 V3"), ("V4", "🤖 V4"), ("V5", "🦖 V5")]:
+                    valides = [x[-min_l:] for x in hists[code_m] if len(x) >= min_l]
+                    if valides:
+    
