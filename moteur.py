@@ -251,3 +251,4 @@ def calc_v4_meta(df, eq1, eq2, C_val=0.5, alpha=0.80):
 
     tot2 = max(1.0, v2_1 + v2_n + v2_2)
     p2 = np.array([v2_1 / tot2, v2_n / tot2, v2_2 / tot2])
+        
