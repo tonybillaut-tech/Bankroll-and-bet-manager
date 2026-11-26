@@ -71,7 +71,7 @@ u_data = db.get(user, {"capital_depart": 20.0, "paris": [], "is_pro": False, "es
 cap = get_cap(u_data)
 is_pro = bool(u_data.get("is_pro", False))
 
-c_head1, c_head2, c_head3 = st.columns([2, 2, 1])
+c_head1, c_head2, c_head3 = st.columns(3)
 c_head1.markdown(f"👤 **{user.capitalize()}** {'👑 `VIP PRO`' if is_pro else '🆓 `Essai`'}")
 c_head2.markdown(f"💰 Capital : **{cap:.2f} €**")
 if c_head3.button("🚪 Quitter", use_container_width=True):
@@ -104,3 +104,4 @@ with tab_vip:
 
 with tab_guide:
     render_guide()
+    
