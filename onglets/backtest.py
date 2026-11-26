@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
-import requests, io, time
-from database import load_db
-from moteur import CHAMPIONNATS, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, get_v4_params, save_v4_params
+import requests, io
+from database import load_db, SUPABASE_URL, _sb_headers
+from moteur import CHAMPIONNATS, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, get_v4_params
+from algo_v5 import run_evolution
 
 def fetch_odds_df(codes, saison="2526"):
     fd_code, csv_code = codes
@@ -66,6 +67,7 @@ def render_backtest():
     db = load_db()
     ligue = st.selectbox("🏟️ Championnat détaillé", list(CHAMPIONNATS.keys()))
     fd_code = CHAMPIONNATS.get(ligue)
+    key = next(iter(fd_code))
     v4_cfg = get_v4_params(db, fd_code)
     d_genes = v4_cfg.get("darwin_genes")
 
@@ -79,7 +81,31 @@ def render_backtest():
     dnb = st.toggle("🔄 Simuler avec DNB (Remboursé si nul)", value=True)
     csv_up = st.file_uploader("📂 Importer un CSV Bet365 (optionnel)", type=["csv"])
 
-    if st.button("⚔️ Lancer le Duel V2 vs V3 vs V4 vs V5 Darwin", type="primary", use_container_width=True):
+    b1, b2 = st.columns(2)
+    run_duel = b1.button("⚔️ Duel V2 vs V3 vs V4 vs V5", type="primary", use_container_width=True)
+    run_train = b2.button("🧠 Entraîner V4 & V5 (Ligue)", use_container_width=True)
+
+    if run_train:
+        bar = st.progress(10, text=f"Entraînement V4 & V5 Darwin sur {ligue}...")
+        df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True) if csv_up else fetch_odds_df(fd_code)
+        if len(df) >= 65:
+            bar.progress(45, text="🤖 Optimisation V4 Méta-IA...")
+            grille = [(0.2, 0.70), (0.5, 0.50), (0.5, 0.80), (1.0, 0.70), (1.0, 0.90), (2.0, 0.85)]
+            best = max(((c, a, *simuler_df(df, cap_init, marge_pct, dnb, "V4", c, a)[:4]) for c, a in grille), key=lambda x: x if x >= 8 else x - 50)
+            bar.progress(80, text="🦖 Évolution génétique V5 Darwin...")
+            best_genome, _ = run_evolution(df.tail(220).reset_index(drop=True), n_pop=45, n_gen=20)
+            if "_v4_meta" not in db or not isinstance(db["_v4_meta"], dict):
+                db["_v4_meta"] = {}
+            db["_v4_meta"][key] = {
+                "C": float(best), "alpha": round(float(best), 2), "trained": True,
+                "roi_bt": round(float(best), 1), "paris_bt": int(best),
+                "darwin_genes": [round(float(g), 4) for g in best_genome]
+            }
+            requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=8)
+            bar.progress(100, text="✅ Sauvegardé !")
+            st.rerun()
+
+    if run_duel:
         bar = st.progress(0, text="Chargement des données...")
         df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True) if csv_up else fetch_odds_df(fd_code)
         if len(df) >= 65:
@@ -89,7 +115,7 @@ def render_backtest():
             p3, r3, cap3, roi3, h3 = simuler_df(df, cap_init, marge_pct, dnb, "V3")
             bar.progress(70, text="🤖 Simulation V4 Méta-IA...")
             p4, r4, cap4, roi4, h4 = simuler_df(df, cap_init, marge_pct, dnb, "V4", v4_cfg.get("C", 0.5), v4_cfg.get("alpha", 0.8))
-            bar.progress(90, text="🦖 Évolution V5 Darwin...")
+            bar.progress(90, text="🦖 Simulation V5 Darwin...")
             p5, r5, cap5, roi5, h5 = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=d_genes)
             bar.progress(100, text="✅ Duel terminé !")
 
@@ -108,4 +134,4 @@ def render_backtest():
     if st.button("🏆 Classement V4 & V5 Cloud (Instantané)", use_container_width=True):
         rows = [{"Ligue": n, "V4": "🧠 OK" if get_v4_params(db, c).get("trained") else "Std", "V5": "🦖 OK" if get_v4_params(db, c).get("darwin_genes") else "Auto", "ROI V4 (%)": get_v4_params(db, c).get("roi_bt", 0.0)} for n, c in CHAMPIONNATS.items()]
         st.dataframe(pd.DataFrame(rows).sort_values("ROI V4 (%)", ascending=False), use_container_width=True, hide_index=True)
-            
+    
