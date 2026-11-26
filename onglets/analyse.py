@@ -81,7 +81,7 @@ def render_analyse(*args):
     cn_b = kn.number_input("Cote N (Nul)", 1.01, 50.0, 3.30, step=0.05)
     c2_b = k2.number_input("Cote 2 (Ext)", 1.01, 50.0, 3.40, step=0.05)
 
-    dnb_mode = st.toggle("🔄 Option Sécurité : Remboursé si Nul (DNB)", value=True)
+    dnb_mode = st.toggle("🔄 Option Sécurité : Remboursé si Nul (DNB)", value=False)
     risque_pct = st.slider("🛡️ Risque maximum par pari (% du capital)", 1.0, 10.0, 5.0, step=0.5)
 
     if st.button("🚀 Lancer l'analyse & détecter les Value Bets", type="primary", use_container_width=True):
@@ -160,4 +160,4 @@ def render_analyse(*args):
                     break
                 mise_sc = round(min(cap * 0.025, (cap * (risque_pct / 100.0)) * 0.4), 2)
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
-        
+                     
