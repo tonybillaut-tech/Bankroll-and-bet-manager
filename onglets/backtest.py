@@ -69,10 +69,46 @@ def simuler_df(df, cap_init, marge_pct, dnb, algo="V3", C_val=0.5, alpha=0.80, d
     return paris, round(gagnes * 100 / max(1, paris), 1), round(cap, 2), round(((cap - cap_init) / max(1.0, mise_tot)) * 100, 1), hist
 
 def render_backtest():
-    st.subheader("📊 Backtest, Duel IA & Évolution Darwin")
+    st.subheader("📊 Backtest & Arène IA")
     db = load_db()
 
-    if st.button("🏆 Classement V4 vs V5 Darwin (Instantané)", use_container_width=True):
+    custom_df = st.session_state.get("custom_df")
+    has_custom = isinstance(custom_df, pd.DataFrame) and len(custom_df) >= 65
+    options_ligues = (["📂 Ligue Perso (CSV)"] if has_custom else []) + ["🌍 Toutes les ligues (Portefeuille EU)"] + list(CHAMPIONNATS.keys())
+    ligue = st.selectbox("🏟️ Championnat", options_ligues)
+    is_all = ligue.startswith("🌍")
+    is_custom = ligue.startswith("📂")
+
+    zone_prog = st.empty()
+
+    if is_all or is_custom:
+        b1, b2 = st.columns(2)
+        run_duel = b1.button("⚔️ Duel 4 IA", type="primary", use_container_width=True)
+        run_rank = b2.button("🏆 Classement", use_container_width=True)
+        run_train = False
+    else:
+        b1, b2, b3 = st.columns(3)
+        run_duel = b1.button("⚔️ Duel", type="primary", use_container_width=True)
+        run_train = b2.button("🧠 Entraîner", use_container_width=True)
+        run_rank = b3.button("🏆 Top 10", use_container_width=True)
+
+    with st.expander("⚙️ Paramètres (Capital 100€ • Marge 10% • DNB)", expanded=False):
+        c1, c2 = st.columns(2)
+        cap_init = c1.number_input("💰 Capital (€)", 10.0, 10000.0, 100.0, step=10.0)
+        marge_pct = c2.slider("🛡️ Marge (%)", 0, 25, 10, step=2)
+        dnb = st.toggle("🔄 Simuler avec DNB (Remboursé si nul)", value=True)
+
+    if not is_all and not is_custom:
+        fd_code = CHAMPIONNATS.get(ligue)
+        key = next(iter(fd_code))
+        v4_cfg = get_v4_params(db, fd_code)
+        d_genes = v4_cfg.get("darwin_genes")
+        if v4_cfg.get("trained"):
+            d_roi = v4_cfg.get("darwin_roi")
+            d_txt = f" • 🦖 V5 : **{d_roi:+.1f}%**" if d_roi is not None else (" • 🦖 Darwin actif" if d_genes else "")
+            st.caption(f"🧠 **{ligue} :** 🤖 V4 `C={v4_cfg.get('C')}` (**{v4_cfg.get('roi_bt', 0):+.1f}%**){d_txt}")
+
+    if run_rank:
         rows = []
         for n, c in CHAMPIONNATS.items():
             cfg = get_v4_params(db, c)
@@ -90,44 +126,6 @@ def render_backtest():
         df_rank = pd.DataFrame(rows).sort_values("_sort", ascending=False).drop(columns=["_sort"])
         st.dataframe(df_rank, use_container_width=True, hide_index=True)
 
-    st.divider()
-    custom_df = st.session_state.get("custom_df")
-    has_custom = isinstance(custom_df, pd.DataFrame) and len(custom_df) >= 65
-    options_ligues = (["📂 Ligue Perso (CSV)"] if has_custom else []) + ["🌍 Toutes les ligues (Portefeuille EU)"] + list(CHAMPIONNATS.keys())
-    ligue = st.selectbox("🏟️ Championnat détaillé", options_ligues)
-    is_all = ligue.startswith("🌍")
-    is_custom = ligue.startswith("📂")
-
-    if is_all:
-        st.info("🌍 **Mode Portefeuille Global :** cumule les résultats des **8 championnats européens** avec les vraies cotes Bet365 et l'ADN Darwin propre à chaque ligue.")
-    elif is_custom:
-        st.info(f"📂 **CSV Personnalisé actif :** `{st.session_state.get('custom_name', 'CSV')}` (**{len(custom_df)} matchs**)")
-    else:
-        fd_code = CHAMPIONNATS.get(ligue)
-        key = next(iter(fd_code))
-        v4_cfg = get_v4_params(db, fd_code)
-        d_genes = v4_cfg.get("darwin_genes")
-        if v4_cfg.get("trained"):
-            d_roi = v4_cfg.get("darwin_roi")
-            d_txt = f" • 🦖 V5 : **{d_roi:+.1f}%**" if d_roi is not None else (" • 🦖 Darwin actif" if d_genes else "")
-            st.info(f"🧠 **{ligue} :** 🤖 V4 `C={v4_cfg.get('C')}` (**{v4_cfg.get('roi_bt', 0):+.1f}%**){d_txt}")
-
-    c1, c2 = st.columns(2)
-    cap_init = c1.number_input("💰 Capital départ (€)", 10.0, 10000.0, 100.0, step=10.0)
-    marge_pct = c2.slider("🛡️ Marge Value (%)", 0, 25, 10, step=2)
-    dnb = st.toggle("🔄 Simuler avec DNB (Remboursé si nul)", value=True)
-
-    # Emplacement de la barre de progression bien visible juste au-dessus des boutons
-    zone_prog = st.empty()
-
-    if is_all or is_custom:
-        run_duel = st.button("⚔️ Lancer le Duel V2 vs V3 vs V4 vs V5", type="primary", use_container_width=True)
-        run_train = False
-    else:
-        b1, b2 = st.columns(2)
-        run_duel = b1.button("⚔️ Duel V2 vs V3 vs V4 vs V5", type="primary", use_container_width=True)
-        run_train = b2.button("🧠 Entraîner V4 & V5 (Ligue)", use_container_width=True)
-
     if run_train and not is_all and not is_custom:
         bar = zone_prog.progress(5, text=f"Chargement des matchs pour {ligue}...")
         df, _ = fetch_odds_df(fd_code)
@@ -142,7 +140,7 @@ def render_backtest():
                 if score > best_score:
                     best_score = score
                     best_res = (c_try, a_try, p_t, roi_t)
-            bar.progress(75, text="🦖 Évolution génétique V5 Darwin (35 générations)...")
+            bar.progress(75, text="🦖 Évolution génétique V5 Darwin...")
             best_genome, _ = run_evolution(df.tail(220).reset_index(drop=True), n_pop=40, n_gen=18)
             p_v5, _, _, roi_v5, _ = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=best_genome)
             if best_res:
@@ -189,3 +187,9 @@ def render_backtest():
             for code_m, titre_m in [("V2", "⚡ V2"), ("V4", "🤖 V4 Méta-IA")]:
                 cf = round(cap_init + tot_g[code_m], 2)
                 roi_g = round((tot_g[code_m] / max(1.0, cap_init)) * 100, 1)
+                st.metric(titre_m, f"{cf:.2f} €", delta=f"{roi_g:+.1f}% ({tot_p[code_m]}p)")
+        with col3:
+            for code_m, titre_m in [("V3", "🧬 V3 Dixon-Coles"), ("V5", "🦖 V5 Darwin")]:
+                cf = round(cap_init + tot_g[code_m], 2)
+                roi_g = round((tot_g[code_m] / max(1.0, cap_init)) * 100, 1)
+        
