@@ -1,14 +1,16 @@
 import streamlit as st
 from datetime import datetime
-from moteur import CHAMPIONNATS, save_db, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, poisson_score
+from moteur import CHAMPIONNATS, save_db, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, poisson_score, get_v4_params
 
 @st.cache_data(ttl=3600, show_spinner="Chargement des matchs officiels...")
 def get_cached_matches(codes):
     return fetch_matches(codes)
 
-def run_algo(algo_name, df, eq1, eq2):
+def run_algo(algo_name, df, eq1, eq2, v4_cfg=None):
     if "V4" in algo_name:
-        return calc_v4_meta(df, eq1, eq2)
+        c_val = v4_cfg.get("C", 0.5) if v4_cfg else 0.5
+        a_val = v4_cfg.get("alpha", 0.80) if v4_cfg else 0.80
+        return calc_v4_meta(df, eq1, eq2, C_val=c_val, alpha=a_val)
     if "V3" in algo_name:
         return calc_v3_dixon_coles(df, eq1, eq2)
     return calc_v2(df, eq1, eq2)
@@ -16,12 +18,16 @@ def run_algo(algo_name, df, eq1, eq2):
 def render_analyse(db, user_data, capital_actuel, draw_hero):
     ligue = st.selectbox("🏟️ Compétition (Temps Réel)", list(CHAMPIONNATS.keys()))
     fd_code = CHAMPIONNATS[ligue]
+    v4_cfg = get_v4_params(db, fd_code)
+
     df, err = get_cached_matches(CHAMPIONNATS[ligue])
     if df.empty:
         st.warning(f"⚠️ Flux indisponible ({err}).")
         return
 
-    st.caption(f"✅ Flux officiel actif : **{len(df)} matchs terminés**.")
+    badge_v4 = f" • 🧠 **V4 entraînée** (`C={v4_cfg['C']}`, `{int(v4_cfg['alpha']*100)}%` IA, ROI BT `{v4_cfg['roi_bt']:+.1f}%`)" if v4_cfg.get("trained") else ""
+    st.caption(f"✅ Flux officiel actif : **{len(df)} matchs terminés**{badge_v4}.")
+
     eqs = sorted(list(set(df['HomeTeam'].tolist() + df['AwayTeam'].tolist())))
     col1, col2 = st.columns(2)
     eq1 = col1.selectbox("🏠 Domicile", eqs, index=0)
@@ -53,7 +59,7 @@ def render_analyse(db, user_data, capital_actuel, draw_hero):
             save_db(db)
             draw_hero()
 
-            t3v, t3n, t3d, l1, l2 = run_algo(algo_ver, df, eq1, eq2)
+            t3v, t3n, t3d, l1, l2 = run_algo(algo_ver, df, eq1, eq2, v4_cfg=v4_cfg)
             tot = max(1.0, t3v + t3n + t3d)
             issues_spec = [
                 ("1", f"🏠 {eq1} ({'DNB' if dnb else '1'})", (1 + t3d / t3v) if dnb else tot / t3v, (c1 * (cn - 1) / cn) if dnb else c1, c1, 1.90 if dnb else 2.00, 3.50 if dnb else 5.00),
@@ -108,7 +114,7 @@ def render_analyse(db, user_data, capital_actuel, draw_hero):
             st.warning("⏸️ **Aucune opportunité verte sur ce match** — La discipline consiste à passer son tour.")
 
     with st.expander("🎯 Calculateur de Mise — Score Exact (Loi de Poisson)", expanded=False):
-        _, _, _, l1, l2 = run_algo(algo_ver, df, eq1, eq2)
+        _, _, _, l1, l2 = run_algo(algo_ver, df, eq1, eq2, v4_cfg=v4_cfg)
         s1, s2, s3 = st.columns(3)
         g1 = s1.number_input("Buts Dom.", 0, 8, int(round(l1)))
         g2 = s2.number_input("Buts Ext.", 0, 8, int(round(l2)))
@@ -129,4 +135,4 @@ def render_analyse(db, user_data, capital_actuel, draw_hero):
                 db[st.session_state.user_id] = user_data
                 save_db(db)
                 st.success("✅ Ajouté !")
-                
+    
