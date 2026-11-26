@@ -1,13 +1,28 @@
 import streamlit as st
 from datetime import datetime
-from database import save_db
-from moteur import CHAMPIONNATS, fetch_matches, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, poisson_score, get_v4_params
+from database import load_db, save_db
+from moteur import CHAMPIONNATS, fetch_matches, get_cap, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, poisson_score, get_v4_params
 
-def render_analyse(user, db, cap, is_pro):
+def render_analyse(*args):
+    db, user, cap, is_pro = None, "", None, False
+    for a in args:
+        if isinstance(a, bool):
+            is_pro = a
+        elif isinstance(a, dict) and "_v4_meta" in a:
+            db = a
+        elif isinstance(a, str):
+            user = a
+        elif isinstance(a, (int, float)):
+            cap = float(a)
+    if db is None:
+        db = load_db()
+    u = db.get(user, {}) if isinstance(db, dict) else {}
+    if cap is None:
+        cap = get_cap(u)
+    is_pro = bool(u.get("is_pro", is_pro))
+    essai = int(u.get("essai", 0))
+
     st.subheader("⚽ Analyse Prédictive & Value Bets")
-    u = db.get(user, {})
-    essai = u.get("essai", 0)
-
     ligue = st.selectbox("🏟️ Compétition (Temps Réel)", list(CHAMPIONNATS.keys()))
     fd_code = CHAMPIONNATS.get(ligue)
     v4_cfg = get_v4_params(db, fd_code)
@@ -114,4 +129,4 @@ def render_analyse(user, db, cap, is_pro):
             for sc, prob in scores:
                 mise_sc = round(min(cap * 0.025, (cap * (risque_pct / 100.0)) * 0.4), 2)
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
-                
+            
