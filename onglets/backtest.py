@@ -86,34 +86,52 @@ def render_backtest():
     run_train = b2.button("🧠 Entraîner V4 & V5 (Ligue)", use_container_width=True)
 
     if run_train:
-        bar = st.progress(10, text=f"Entraînement V4 & V5 Darwin sur {ligue}...")
-        df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True) if csv_up else fetch_odds_df(fd_code)
-        if len(df) >= 65:
+        bar = st.progress(10, text=f"Chargement des matchs pour {ligue}...")
+        if csv_up:
+            df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True)
+        else:
+            df, _ = fetch_odds_df(fd_code)
+        if len(df) < 65:
+            st.warning(f"Pas assez de matchs terminés ({len(df)} trouvés, 65 requis).")
+        else:
             bar.progress(45, text="🤖 Optimisation V4 Méta-IA...")
             grille = [(0.2, 0.70), (0.5, 0.50), (0.5, 0.80), (1.0, 0.70), (1.0, 0.90), (2.0, 0.85)]
-            best = max(((c, a, *simuler_df(df, cap_init, marge_pct, dnb, "V4", c, a)[:4]) for c, a in grille), key=lambda x: x if x >= 8 else x - 50)
+            best_score, best_res = -9999.0, None
+            for c_try, a_try in grille:
+                p_t, r_t, cap_t, roi_t, _ = simuler_df(df, cap_init, marge_pct, dnb, "V4", c_try, a_try)
+                score = roi_t if p_t >= 8 else (roi_t - 50.0)
+                if score > best_score:
+                    best_score = score
+                    best_res = (c_try, a_try, p_t, roi_t)
             bar.progress(80, text="🦖 Évolution génétique V5 Darwin...")
             best_genome, _ = run_evolution(df.tail(220).reset_index(drop=True), n_pop=45, n_gen=20)
-            if "_v4_meta" not in db or not isinstance(db["_v4_meta"], dict):
-                db["_v4_meta"] = {}
-            db["_v4_meta"][key] = {
-                "C": float(best), "alpha": round(float(best), 2), "trained": True,
-                "roi_bt": round(float(best), 1), "paris_bt": int(best),
-                "darwin_genes": [round(float(g), 4) for g in best_genome]
-            }
-            requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=8)
+            if best_res:
+                bc, ba, bp, broi = best_res
+                if "_v4_meta" not in db or not isinstance(db["_v4_meta"], dict):
+                    db["_v4_meta"] = {}
+                db["_v4_meta"][key] = {
+                    "C": float(bc), "alpha": round(float(ba), 2), "trained": True,
+                    "roi_bt": round(float(broi), 1), "paris_bt": int(bp),
+                    "darwin_genes": [round(float(g), 4) for g in best_genome]
+                }
+                requests.patch(f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta", headers=_sb_headers(), json={"v4_meta": db["_v4_meta"]}, timeout=8)
             bar.progress(100, text="✅ Sauvegardé !")
             st.rerun()
 
     if run_duel:
-        bar = st.progress(0, text="Chargement des données...")
-        df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True) if csv_up else fetch_odds_df(fd_code)
-        if len(df) >= 65:
-            bar.progress(20, text="⚡ Simulation V2...")
+        bar = st.progress(10, text="Chargement des données...")
+        if csv_up:
+            df = pd.read_csv(csv_up).dropna(subset=['HomeTeam', 'AwayTeam', 'FTR']).reset_index(drop=True)
+        else:
+            df, _ = fetch_odds_df(fd_code)
+        if len(df) < 65:
+            st.warning(f"Pas assez de matchs terminés ({len(df)} trouvés, 65 requis).")
+        else:
+            bar.progress(25, text="⚡ Simulation V2...")
             p2, r2, cap2, roi2, h2 = simuler_df(df, cap_init, marge_pct, dnb, "V2")
-            bar.progress(45, text="🧬 Simulation V3 Dixon-Coles...")
+            bar.progress(50, text="🧬 Simulation V3 Dixon-Coles...")
             p3, r3, cap3, roi3, h3 = simuler_df(df, cap_init, marge_pct, dnb, "V3")
-            bar.progress(70, text="🤖 Simulation V4 Méta-IA...")
+            bar.progress(75, text="🤖 Simulation V4 Méta-IA...")
             p4, r4, cap4, roi4, h4 = simuler_df(df, cap_init, marge_pct, dnb, "V4", v4_cfg.get("C", 0.5), v4_cfg.get("alpha", 0.8))
             bar.progress(90, text="🦖 Simulation V5 Darwin...")
             p5, r5, cap5, roi5, h5 = simuler_df(df, cap_init, marge_pct, dnb, "V5", darwin_genes=d_genes)
@@ -134,4 +152,4 @@ def render_backtest():
     if st.button("🏆 Classement V4 & V5 Cloud (Instantané)", use_container_width=True):
         rows = [{"Ligue": n, "V4": "🧠 OK" if get_v4_params(db, c).get("trained") else "Std", "V5": "🦖 OK" if get_v4_params(db, c).get("darwin_genes") else "Auto", "ROI V4 (%)": get_v4_params(db, c).get("roi_bt", 0.0)} for n, c in CHAMPIONNATS.items()]
         st.dataframe(pd.DataFrame(rows).sort_values("ROI V4 (%)", ascending=False), use_container_width=True, hide_index=True)
-    
+        
