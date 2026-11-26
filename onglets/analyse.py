@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 import math
 from datetime import datetime
 from database import load_db, save_db
@@ -36,21 +37,28 @@ def render_analyse(*args):
     essai = int(u.get("essai", 0))
 
     st.subheader("⚽ Analyse Prédictive & Value Bets")
-    ligue = st.selectbox("🏟️ Compétition (Temps Réel)", list(CHAMPIONNATS.keys()))
-    fd_code = CHAMPIONNATS.get(ligue)
-    v4_cfg = get_v4_params(db, fd_code)
-    d_genes = v4_cfg.get("darwin_genes")
+    custom_df = st.session_state.get("custom_df")
+    has_custom = isinstance(custom_df, pd.DataFrame) and len(custom_df) >= 10
+    liste_ligues = (["📂 Ligue Perso (CSV)"] if has_custom else []) + list(CHAMPIONNATS.keys())
+    ligue = st.selectbox("🏟️ Compétition (Temps Réel)", liste_ligues)
 
-    with st.spinner("Connexion officielle aux résultats du championnat..."):
-        df, err = fetch_matches(fd_code)
-
-    if df.empty:
-        st.error(f"⚠️ Flux temporairement indisponible ({err}). Réessaie dans 1 minute.")
-        return
-
-    badge_v4 = f" • 🧠 V4 (`C={v4_cfg.get('C')}`, ROI `{v4_cfg.get('roi_bt', 0):+.1f}%`)" if v4_cfg.get("trained") else ""
-    badge_v5 = " • 🦖 Darwin Cloud actif" if d_genes else ""
-    st.caption(f"✅ Flux officiel actif : **{len(df)} matchs terminés**{badge_v4}{badge_v5}")
+    if ligue == "📂 Ligue Perso (CSV)":
+        df = custom_df.copy()
+        v4_cfg = {"C": 0.5, "alpha": 0.80, "trained": False}
+        d_genes = None
+        st.caption(f"📂 Fichier personnalisé actif : **{st.session_state.get('custom_name', 'CSV')}** ({len(df)} matchs)")
+    else:
+        fd_code = CHAMPIONNATS.get(ligue)
+        v4_cfg = get_v4_params(db, fd_code)
+        d_genes = v4_cfg.get("darwin_genes")
+        with st.spinner("Connexion officielle aux résultats du championnat..."):
+            df, err = fetch_matches(fd_code)
+        if df.empty:
+            st.error(f"⚠️ Flux temporairement indisponible ({err}). Réessaie dans 1 minute.")
+            return
+        badge_v4 = f" • 🧠 V4 (`C={v4_cfg.get('C')}`, ROI `{v4_cfg.get('roi_bt', 0):+.1f}%`)" if v4_cfg.get("trained") else ""
+        badge_v5 = " • 🦖 Darwin Cloud actif" if d_genes else ""
+        st.caption(f"✅ Flux officiel actif : **{len(df)} matchs terminés**{badge_v4}{badge_v5}")
 
     equipes = sorted(list(set(df["HomeTeam"]).union(set(df["AwayTeam"]))))
     c1, c2 = st.columns(2)
