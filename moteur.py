@@ -34,14 +34,16 @@ def get_cap(user_data: dict) -> float:
             cap -= mise
     return round(cap, 2)
 
-def get_v4_params(db: dict, league_code: str) -> dict:
+def get_v4_params(db: dict, league_code) -> dict:
+    key = league_code[0] if isinstance(league_code, (tuple, list)) else str(league_code)
     meta = db.get("_v4_meta", {}) if isinstance(db, dict) else {}
-    return meta.get(league_code, {"C": 0.5, "alpha": 0.80, "trained": False, "roi_bt": 0.0, "paris_bt": 0})
+    return meta.get(key, {"C": 0.5, "alpha": 0.80, "trained": False, "roi_bt": 0.0, "paris_bt": 0})
 
-def save_v4_params(db: dict, league_code: str, C_val: float, alpha_val: float, roi_bt: float, paris_bt: int):
+def save_v4_params(db: dict, league_code, C_val: float, alpha_val: float, roi_bt: float, paris_bt: int):
+    key = league_code[0] if isinstance(league_code, (tuple, list)) else str(league_code)
     if "_v4_meta" not in db or not isinstance(db["_v4_meta"], dict):
-        db["_v4_meta"] = {"capital_depart": 0.0, "paris": [], "is_pro": False, "essai": 0, "pin_hash": ""}
-    db["_v4_meta"][league_code] = {
+        db["_v4_meta"] = {}
+    db["_v4_meta"][key] = {
         "C": float(C_val),
         "alpha": round(float(alpha_val), 2),
         "trained": True,
