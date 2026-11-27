@@ -150,7 +150,9 @@ def render_analyse(*args):
                     if not user:
                         st.error("Connecte-toi à ton compte pour enregistrer un pari.")
                     else:
-                        u.setdefault("paris", []).append({
+                        if not isinstance(u.get("paris"), list):
+                            u["paris"] = []
+                        u["paris"].append({
                             "Date": datetime.now().strftime("%d/%m/%Y %H:%M"),
                             "Match": f"{eq1} vs {eq2}",
                             "Pronostic": label,
@@ -188,4 +190,4 @@ def render_analyse(*args):
                 "<script>const el = window.parent.document.getElementById('resultats-analyse'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>",
                 height=0
     )
-            
+                            
