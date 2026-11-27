@@ -6,8 +6,24 @@ from datetime import datetime
 from database import load_db, save_db
 from moteur import CHAMPIONNATS, fetch_matches, get_cap, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, get_v4_params
 
+def _pick_menu(titre: str, options: list, key: str, default_idx: int = 0):
+    if key not in st.session_state or st.session_state[key] not in options:
+        st.session_state[key] = options[min(default_idx, len(options) - 1)]
+    st.caption(titre)
+    with st.popover(f"{st.session_state[key]} ▾", use_container_width=True):
+        choix = st.radio(
+            titre,
+            options,
+            index=options.index(st.session_state[key]),
+            key=f"rad_{key}",
+            label_visibility="collapsed"
+        )
+        if choix != st.session_state[key]:
+            st.session_state[key] = choix
+            st.rerun()
+    return st.session_state[key]
+
 def render_analyse(*args):
-    st.markdown("<style>div[data-baseweb='select'] input { pointer-events: none !important; caret-color: transparent !important; }</style>", unsafe_allow_html=True)
     db = load_db()
     user = ""
     is_pro_flag = False
@@ -41,7 +57,7 @@ def render_analyse(*args):
     custom_df = st.session_state.get("custom_df")
     has_custom = isinstance(custom_df, pd.DataFrame) and len(custom_df) >= 10
     liste_ligues = (["📂 Ligue Perso (CSV)"] if has_custom else []) + list(CHAMPIONNATS.keys())
-    ligue = st.selectbox("🏟️ Compétition (Temps Réel)", liste_ligues)
+    ligue = _pick_menu("🏟️ Compétition (Temps Réel)", liste_ligues, "ana_ligue", 0)
 
     if ligue == "📂 Ligue Perso (CSV)":
         df = custom_df.copy()
@@ -63,8 +79,10 @@ def render_analyse(*args):
 
     equipes = sorted(list(set(df["HomeTeam"]).union(set(df["AwayTeam"]))))
     c1, c2 = st.columns(2)
-    eq1 = c1.selectbox("🏠 Domicile", equipes, index=0)
-    eq2 = c2.selectbox("✈️ Extérieur", equipes, index=min(1, len(equipes) - 1))
+    with c1:
+        eq1 = _pick_menu("🏠 Domicile", equipes, "ana_eq1", 0)
+    with c2:
+        eq2 = _pick_menu("✈️ Extérieur", equipes, "ana_eq2", 1)
 
     if eq1 == eq2:
         st.warning("Sélectionne deux équipes différentes.")
@@ -187,4 +205,4 @@ def render_analyse(*args):
         if res.get("scroll"):
             res["scroll"] = False
             components.html("<script>const el = window.parent.document.getElementById('resultats-analyse'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>", height=0)
-        
+    
