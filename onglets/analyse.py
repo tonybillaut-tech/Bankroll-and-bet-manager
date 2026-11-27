@@ -7,7 +7,8 @@ from database import load_db, save_db
 from moteur import CHAMPIONNATS, fetch_matches, get_cap, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, get_v4_params
 
 def render_analyse(*args):
-    components.html("""
+    components.html(
+        """
         <script>
         const doc = window.parent.document;
         if (!doc.getElementById('no-kb-style')) {
@@ -32,7 +33,9 @@ def render_analyse(*args):
         }, true);
         new MutationObserver(blockSelectKeyboard).observe(doc.body, { childList: true, subtree: true });
         </script>
-    """, height=0)
+        """,
+        height=0
+    )
 
     db = load_db()
     user = ""
@@ -211,4 +214,6 @@ def render_analyse(*args):
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
 
         if res.get("scroll"):
+            res["scroll"] = False
+            components.html(
         
