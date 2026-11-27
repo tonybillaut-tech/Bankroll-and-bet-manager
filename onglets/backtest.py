@@ -4,7 +4,10 @@ import pandas as pd
 import requests
 from database import load_db, SUPABASE_URL, _sb_headers
 from moteur import CHAMPIONNATS, get_v4_params
-from bt_core import LIGUES_EU, fetch_odds_df, simuler_df, entrainer_ligue
+try:
+    from onglets.bt_core import LIGUES_EU, fetch_odds_df, simuler_df, entrainer_ligue
+except ImportError:
+    from bt_core import LIGUES_EU, fetch_odds_df, simuler_df, entrainer_ligue
 
 def scroll_to(anchor):
     components.html(f"<script>const el = window.parent.document.getElementById('{anchor}'); if (el) {{ el.scrollIntoView({{behavior: 'smooth', block: 'start'}}); }}</script>", height=0)
@@ -108,4 +111,4 @@ def render_backtest():
         if courbes:
             st.line_chart(pd.DataFrame(courbes))
         scroll_to("res-bt")
-                
+                    
