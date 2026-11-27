@@ -12,18 +12,17 @@ def render_analyse(*args):
     is_pro_flag = False
     cap_arg = None
 
-    for k_ss, v_ss in st.session_state.items():
-        if type(v_ss) is bool and v_ss and "pro" in str(k_ss).lower():
-            is_pro_flag = True
-        elif isinstance(v_ss, str) and isinstance(db, dict):
-            for k_db in db.keys():
-                if k_db != "_v4_meta" and k_db.lower() == v_ss.strip().lower():
-                    user = k_db
+    raw_user = st.session_state.get("user_id") or st.session_state.get("user") or ""
+    if isinstance(raw_user, str) and isinstance(db, dict):
+        for k_db in db.keys():
+            if k_db != "_v4_meta" and k_db.lower() == raw_user.strip().lower():
+                user = k_db
+                break
 
     for a in args:
         if type(a) is bool and a:
             is_pro_flag = True
-        elif isinstance(a, str) and isinstance(db, dict):
+        elif isinstance(a, str) and isinstance(db, dict) and not user:
             for k_db in db.keys():
                 if k_db != "_v4_meta" and k_db.lower() == a.strip().lower():
                     user = k_db
@@ -162,8 +161,8 @@ def render_analyse(*args):
                         })
                         db[user] = u
                         save_db(db)
-                        st.success(f"✅ Pari enregistré dans ta Bankroll (**{mise_opt:.2f} €** sur **{label}**) !")
                         st.toast("✅ Pari ajouté à ta bankroll !")
+                        st.rerun()
 
         if not found:
             st.warning("🛡️ **Aucun Value Bet détecté sur ces cotes.** La discipline consiste à passer son tour !")
@@ -190,4 +189,4 @@ def render_analyse(*args):
                 "<script>const el = window.parent.document.getElementById('resultats-analyse'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>",
                 height=0
     )
-                            
+        
