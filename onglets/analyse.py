@@ -7,36 +7,7 @@ from database import load_db, save_db
 from moteur import CHAMPIONNATS, fetch_matches, get_cap, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, get_v4_params
 
 def render_analyse(*args):
-    components.html(
-        """
-        <script>
-        const doc = window.parent.document;
-        if (!doc.getElementById('no-kb-style')) {
-            const st = doc.createElement('style');
-            st.id = 'no-kb-style';
-            st.textContent = 'div[data-baseweb="select"] input { pointer-events: none !important; caret-color: transparent !important; }';
-            doc.head.appendChild(st);
-        }
-        function blockSelectKeyboard() {
-            doc.querySelectorAll('div[data-baseweb="select"] input').forEach(inp => {
-                inp.setAttribute('readonly', 'true');
-                inp.setAttribute('inputmode', 'none');
-                inp.setAttribute('tabindex', '-1');
-                if (doc.activeElement === inp) inp.blur();
-            });
-        }
-        blockSelectKeyboard();
-        doc.addEventListener('focusin', (e) => {
-            if (e.target && e.target.closest && e.target.closest('div[data-baseweb="select"]')) {
-                e.target.blur();
-            }
-        }, true);
-        new MutationObserver(blockSelectKeyboard).observe(doc.body, { childList: true, subtree: true });
-        </script>
-        """,
-        height=0
-    )
-
+    st.markdown("<style>div[data-baseweb='select'] input { pointer-events: none !important; caret-color: transparent !important; }</style>", unsafe_allow_html=True)
     db = load_db()
     user = ""
     is_pro_flag = False
@@ -215,5 +186,5 @@ def render_analyse(*args):
 
         if res.get("scroll"):
             res["scroll"] = False
-            components.html(
+            components.html("<script>const el = window.parent.document.getElementById('resultats-analyse'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>", height=0)
         
