@@ -9,15 +9,28 @@ from moteur import CHAMPIONNATS, fetch_matches, get_cap, calc_v2, calc_v3_dixon_
 def render_analyse(*args):
     components.html("""
         <script>
+        const doc = window.parent.document;
+        if (!doc.getElementById('no-kb-style')) {
+            const st = doc.createElement('style');
+            st.id = 'no-kb-style';
+            st.textContent = 'div[data-baseweb="select"] input { pointer-events: none !important; caret-color: transparent !important; }';
+            doc.head.appendChild(st);
+        }
         function blockSelectKeyboard() {
-            const doc = window.parent.document;
             doc.querySelectorAll('div[data-baseweb="select"] input').forEach(inp => {
                 inp.setAttribute('readonly', 'true');
                 inp.setAttribute('inputmode', 'none');
+                inp.setAttribute('tabindex', '-1');
+                if (doc.activeElement === inp) inp.blur();
             });
         }
         blockSelectKeyboard();
-        new MutationObserver(blockSelectKeyboard).observe(window.parent.document.body, { childList: true, subtree: true });
+        doc.addEventListener('focusin', (e) => {
+            if (e.target && e.target.closest && e.target.closest('div[data-baseweb="select"]')) {
+                e.target.blur();
+            }
+        }, true);
+        new MutationObserver(blockSelectKeyboard).observe(doc.body, { childList: true, subtree: true });
         </script>
     """, height=0)
 
@@ -198,9 +211,4 @@ def render_analyse(*args):
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
 
         if res.get("scroll"):
-            res["scroll"] = False
-            components.html(
-                "<script>const el = window.parent.document.getElementById('resultats-analyse'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>",
-                height=0
-                                               )
-            
+        
