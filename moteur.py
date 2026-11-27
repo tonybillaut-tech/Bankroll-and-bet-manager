@@ -24,11 +24,18 @@ CHAMPIONNATS = {
 }
 
 def get_cap(user_data: dict) -> float:
-    cap = float(user_data.get("capital_depart", 20.0))
-    for p in user_data.get("paris", []):
+    if not isinstance(user_data, dict):
+        return 20.0
+    cap = float(user_data.get("capital_depart") or 20.0)
+    paris = user_data.get("paris")
+    if not isinstance(paris, list):
+        return round(cap, 2)
+    for p in paris:
+        if not isinstance(p, dict):
+            continue
         st_p = str(p.get("Statut", ""))
-        mise = float(p.get("Mise (€)", p.get("Mise", 0.0)))
-        cote = float(p.get("Cote", 1.0))
+        mise = float(p.get("Mise (€)", p.get("Mise", 0.0)) or 0.0)
+        cote = float(p.get("Cote", 1.0) or 1.0)
         if "✅" in st_p or "Gagné" in st_p:
             cap += mise * (cote - 1.0)
         elif "❌" in st_p or "Perdu" in st_p or "⏳" in st_p or "cours" in st_p:
