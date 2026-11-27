@@ -9,6 +9,23 @@ try:
 except ImportError:
     from bt_core import LIGUES_EU, fetch_odds_df, simuler_df, entrainer_ligue
 
+def _pick_menu(titre: str, options: list, key: str, default_idx: int = 0):
+    if key not in st.session_state or st.session_state[key] not in options:
+        st.session_state[key] = options[min(default_idx, len(options) - 1)]
+    st.caption(titre)
+    with st.popover(f"{st.session_state[key]} ▾", use_container_width=True):
+        choix = st.radio(
+            titre,
+            options,
+            index=options.index(st.session_state[key]),
+            key=f"rad_{key}",
+            label_visibility="collapsed"
+        )
+        if choix != st.session_state[key]:
+            st.session_state[key] = choix
+            st.rerun()
+    return st.session_state[key]
+
 def scroll_to(anchor):
     components.html(f"<script>const el = window.parent.document.getElementById('{anchor}'); if (el) {{ el.scrollIntoView({{behavior: 'smooth', block: 'start'}}); }}</script>", height=0)
 
@@ -24,7 +41,8 @@ def render_backtest():
 
     custom_df = st.session_state.get("custom_df")
     has_custom = isinstance(custom_df, pd.DataFrame) and len(custom_df) >= 65
-    ligue = st.selectbox("🏟️ Cible", (["📂 Ligue Perso (CSV)"] if has_custom else []) + ["🌍 Toutes les ligues (Portefeuille EU)"] + list(CHAMPIONNATS.keys()))
+    liste_cibles = (["📂 Ligue Perso (CSV)"] if has_custom else []) + ["🌍 Toutes les ligues (Portefeuille EU)"] + list(CHAMPIONNATS.keys())
+    ligue = _pick_menu("🏟️ Cible", liste_cibles, "bt_ligue", 0)
     is_all, is_custom = ligue.startswith("🌍"), ligue.startswith("📂")
     zone_prog = st.empty()
 
@@ -111,4 +129,4 @@ def render_backtest():
         if courbes:
             st.line_chart(pd.DataFrame(courbes))
         scroll_to("res-bt")
-                    
+            
