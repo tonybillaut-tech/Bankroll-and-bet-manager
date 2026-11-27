@@ -7,6 +7,20 @@ from database import load_db, save_db
 from moteur import CHAMPIONNATS, fetch_matches, get_cap, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, get_v4_params
 
 def render_analyse(*args):
+    components.html("""
+        <script>
+        function blockSelectKeyboard() {
+            const doc = window.parent.document;
+            doc.querySelectorAll('div[data-baseweb="select"] input').forEach(inp => {
+                inp.setAttribute('readonly', 'true');
+                inp.setAttribute('inputmode', 'none');
+            });
+        }
+        blockSelectKeyboard();
+        new MutationObserver(blockSelectKeyboard).observe(window.parent.document.body, { childList: true, subtree: true });
+        </script>
+    """, height=0)
+
     db = load_db()
     user = ""
     is_pro_flag = False
@@ -188,5 +202,5 @@ def render_analyse(*args):
             components.html(
                 "<script>const el = window.parent.document.getElementById('resultats-analyse'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>",
                 height=0
-    )
-        
+                                               )
+            
