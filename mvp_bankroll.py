@@ -153,26 +153,24 @@ for _, mod_name, fn in extra_tabs:
 components.html("""
 <script>
 const doc = window.parent.document;
-if (!doc._swipeBound) {
-    doc._swipeBound = true;
-    let sx = 0, sy = 0, ignore = false;
-    doc.addEventListener('touchstart', e => {
-        const t0 = e.touches.item(0);
-        if (!t0 || e.touches.length !== 1) return;
-        const el = e.target;
-        ignore = !!(el && el.closest && el.closest('[data-testid="stDataFrame"], [data-baseweb="tab-list"], [data-baseweb="slider"], input'));
-        sx = t0.clientX;
-        sy = t0.clientY;
-    }, {passive: true});
-    doc.addEventListener('touchend', e => {
-        const t0 = e.changedTouches.item(0);
-        if (ignore || !t0 || e.changedTouches.length !== 1) return;
-        const dx = t0.clientX - sx;
-        const dy = t0.clientY - sy;
-        if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.4) {
-            const list = doc.querySelector('[data-baseweb="tab-list"]');
-            if (!list) return;
-            const btns = Array.from(list.querySelectorAll('button[role="tab"]'));
+if (!doc.getElementById('swipe-css')) {
+    const s = doc.createElement('style');
+    s.id = 'swipe-css';
+    s.textContent = 'section[data-testid="stMain"], .main { touch-action: pan-y !important; }';
+    doc.head.appendChild(s);
+}
+if (!doc._swipeV2) {
+    doc._swipeV2 = true;
+    let sx = 0, sy = 0, skip = false;
+    const onStart = (x, y, el) => {
+        skip = !!(el && el.closest && el.closest('[data-testid="stDataFrame"], [data-baseweb="tab-list"], [data-baseweb="slider"], input'));
+        sx = x; sy = y;
+    };
+    const onEnd = (x, y) => {
+        if (skip) return;
+        const dx = x - sx, dy = y - sy;
+        if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+            const btns = Array.from(doc.querySelectorAll('button[data-testid="stTab"], button[role="tab"]'));
             const cur = btns.findIndex(b => b.getAttribute('aria-selected') === 'true');
             const nxt = dx < 0 ? cur + 1 : cur - 1;
             const target = btns.at(nxt);
@@ -181,7 +179,9 @@ if (!doc._swipeBound) {
                 target.scrollIntoView({behavior: 'smooth', inline: 'center', block: 'nearest'});
             }
         }
-    }, {passive: true});
+    };
+    doc.addEventListener('touchstart', e => { const t = e.touches.item(0); if (t) onStart(t.clientX, t.clientY, e.target); }, {passive: true, capture: true});
+    doc.addEventListener('touchend', e => { const t = e.changedTouches.item(0); if (t) onEnd(t.clientX, t.clientY); }, {passive: true, capture: true});
 }
 </script>
 """, height=0)
