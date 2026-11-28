@@ -1,5 +1,5 @@
 import streamlit as st
-from database import save_db
+from database import save_db, redeem_vip_code
 
 STRIPE_URL = st.secrets.get("STRIPE_LINK", "https://stripe.com")
 CODE_PROMO_VIP = st.secrets.get("VIP_CODE", "SMARTSTAKE2026")
@@ -11,9 +11,9 @@ def render_vip(db, user, is_pro, is_android=False):
     if is_pro:
         st.success(f"👑 **Statut VIP PRO actif** pour **{user}** — Accès illimité aux 4 moteurs d'IA (`V2`, `V3`, `V4`, `🦖 V5 Darwin`) et au suivi de bankroll.")
     else:
-        essais = int(u_data.get("essai", 0))
-        restants = max(0, 3 - essais)
-        st.warning(f"🆓 **Mode Découverte** : il te reste **{restants} analyse(s) gratuite(s)** sur 3.")
+        essais = int(u_data.get("essai") or 0)
+        restants = max(0, 10 - essais)
+        st.warning(f"🆓 **Mode Découverte** : il te reste **{restants} analyse(s) gratuite(s)** sur 10.")
 
     st.markdown("""
     ### Ce que débloque l'abonnement VIP Pro :
@@ -34,7 +34,7 @@ def render_vip(db, user, is_pro, is_android=False):
     with st.expander("🎟️ Activer un Code Promo / Accès Testeur"):
         code_in = st.text_input("Entre ton code d'activation", type="password", key="vip_code_input").strip()
         if st.button("Valider le code", use_container_width=True):
-            if code_in and code_in == CODE_PROMO_VIP:
+            if code_in and (code_in == CODE_PROMO_VIP or redeem_vip_code(code_in, user)):
                 u_data["is_pro"] = True
                 db[user] = u_data
                 save_db(db)
@@ -42,4 +42,3 @@ def render_vip(db, user, is_pro, is_android=False):
                 st.rerun()
             else:
                 st.error("Code invalide.")
-              
