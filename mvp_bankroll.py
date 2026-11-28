@@ -28,6 +28,9 @@ st.markdown("""
 <style>
 .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
 div[data-testid="stMetric"] { background: #161b22; padding: 10px 14px; border-radius: 10px; border: 1px solid #2b313a; }
+div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.4rem !important; }
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] { min-width: 0 !important; flex: 1 1 0 !important; }
+div[data-testid="stHorizontalBlock"] button { padding: 0.45rem 0.25rem !important; font-size: 0.84rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -127,14 +130,10 @@ nav_items = [("⚽ Analyse", "analyse", None), ("📊 Backtest", "backtest", Non
 labels = [lbl for lbl, _, _ in nav_items]
 
 if "active_tab" not in st.session_state or st.session_state["active_tab"] not in labels:
-    st.session_state["active_tab"] = labels
+    st.session_state["active_tab"] = next(iter(labels))
 
 for row_start in range(0, len(labels), 3):
     cols = st.columns(3)
-    for idx_col, lbl in enumerate(labels[row_start:row_start + 3]):
-        is_sel = (st.session_state["active_tab"] == lbl)
-        if cols.at(idx_col) if hasattr(cols, "at") else cols[idx_col]:
-            pass
     for idx_col in range(min(3, len(labels) - row_start)):
         lbl = labels[row_start + idx_col]
         is_sel = (st.session_state["active_tab"] == lbl)
