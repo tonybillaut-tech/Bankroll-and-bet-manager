@@ -14,6 +14,16 @@ def make_token(username: str, pin_hash: str) -> str:
     msg = f"{username.lower()}:{pin_hash}".encode("utf-8")
     return hmac.new(secret, msg, hashlib.sha256).hexdigest()
 
+def render_footer():
+    st.divider()
+    st.caption(
+        "🔞 **Application réservée aux personnes majeures (+18 ans).** "
+        "SmartStake est un outil d'aide à la décision mathématique et de gestion de bankroll : "
+        "aucun gain n'est garanti. Jouer comporte des risques (endettement, isolement, dépendance). "
+        "Aide et information : **09 74 75 13 13** (appel non surtaxé) ou [joueurs-info-service.fr](https://joueurs-info-service.fr) • "
+        "[Règles de confidentialité](https://github.com)"
+    )
+
 st.markdown("""
 <style>
 .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
@@ -79,6 +89,7 @@ if not st.session_state["user"]:
                 st.query_params["u"] = new_u
                 st.query_params["t"] = make_token(new_u, p_h)
                 st.rerun()
+    render_footer()
     st.stop()
 
 user = st.session_state["user"]
@@ -136,3 +147,5 @@ for _, mod_name, fn in extra_tabs:
             fn(u_data, db, cap)
         else:
             fn(db, user, is_pro, is_android)
+
+render_footer()
