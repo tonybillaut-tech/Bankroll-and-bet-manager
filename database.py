@@ -210,3 +210,9 @@ def render_analyse(*args):
 
         if res.get("scroll"):
             res["scroll"] = False
+        if res.get("scroll"):
+            res["scroll"] = False
+            components.html(
+                "<script>const el = window.parent.document.getElementById('resultats-analyse'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>",
+                height=0
+            )
