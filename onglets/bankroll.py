@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from moteur import save_db, check_results
+from database import load_db, save_db
+from moteur import check_results
 
 def _get_uid(db):
     if isinstance(db, dict):
@@ -12,9 +13,11 @@ def _get_uid(db):
 
 def render_bankroll(user_data, db, capital_actuel):
     st.subheader("💰 Gestion de Bankroll")
-    uid = _get_uid(db)
-    cap_depart = float(user_data.get("capital_depart") or 20.0)
-    paris = user_data.get("paris") if isinstance(user_data.get("paris"), list) else []
+    fresh_db = load_db() or db
+    uid = _get_uid(fresh_db)
+    u_fresh = fresh_db.get(uid, user_data) if uid else user_data
+    cap_depart = float(u_fresh.get("capital_depart") or 20.0)
+    paris = u_fresh.get("paris") if isinstance(u_fresh.get("paris"), list) else []
 
     gains_potentiels = 0.0
     mises_en_cours = 0.0
@@ -49,22 +52,23 @@ def render_bankroll(user_data, db, capital_actuel):
         delta_color="inverse" if mises_en_cours > 0 else "off"
     )
 
-    with st.expander("⚙️ Modifier le capital de départ", expanded=False):
-        nouveau_cap = st.number_input("Nouveau montant (€)", 1.0, 100000.0, cap_depart, step=5.0, key="in_cap_dep")
-        if st.button("💾 Enregistrer le capital", type="primary", use_container_width=True):
-            user_data["capital_depart"] = round(float(nouveau_cap), 2)
+    with st.expander("⚙️ Modifier le montant de la Bankroll", expanded=False):
+        nouveau_solde = st.number_input("Nouveau solde de Bankroll (€)", 1.0, 100000.0, float(capital_actuel), step=5.0, key="in_bk_act")
+        if st.button("💾 Mettre à jour ma Bankroll", type="primary", use_container_width=True):
+            nouveau_depart = round(cap_depart + (float(nouveau_solde) - float(capital_actuel)), 2)
+            u_fresh["capital_depart"] = max(0.0, nouveau_depart)
             if uid:
-                db[uid] = user_data
-                save_db(db)
+                fresh_db[uid] = u_fresh
+                save_db(fresh_db)
             st.rerun()
 
     if paris:
         st.dataframe(pd.DataFrame(paris), use_container_width=True)
         if st.button("🔄 Vérifier les résultats des matchs", use_container_width=True):
-            user_data["paris"] = check_results(paris)
+            u_fresh["paris"] = check_results(paris)
             if uid:
-                db[uid] = user_data
-                save_db(db)
+                fresh_db[uid] = u_fresh
+                save_db(fresh_db)
             st.rerun()
     else:
         st.info("Aucun pari enregistré pour le moment. Lance une analyse dans l'onglet ⚽ Analyse.")
