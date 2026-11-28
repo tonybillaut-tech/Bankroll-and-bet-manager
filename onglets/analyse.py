@@ -29,12 +29,18 @@ def render_analyse(*args):
     is_pro_flag = False
     cap_arg = None
 
-    raw_user = st.session_state.get("user_id") or st.session_state.get("user") or ""
-    if isinstance(raw_user, str) and isinstance(db, dict):
-        for k_db in db.keys():
-            if k_db != "_v4_meta" and k_db.lower() == raw_user.strip().lower():
-                user = k_db
+    if isinstance(db, dict):
+        valid_users = {k.lower(): k for k in db.keys() if k != "_v4_meta"}
+        for k_prior in ("user_id", "user", "username", "pseudo", "login", "current_user"):
+            val = st.session_state.get(k_prior)
+            if isinstance(val, str) and val.strip().lower() in valid_users:
+                user = valid_users[val.strip().lower()]
                 break
+        if not user:
+            for k_ss, v_ss in st.session_state.items():
+                if not str(k_ss).startswith(("ana_", "rad_", "bt_", "save_")) and isinstance(v_ss, str) and v_ss.strip().lower() in valid_users:
+                    user = valid_users[v_ss.strip().lower()]
+                    break
 
     for a in args:
         if type(a) is bool and a:
@@ -204,5 +210,3 @@ def render_analyse(*args):
 
         if res.get("scroll"):
             res["scroll"] = False
-            components.html("<script>const el = window.parent.document.getElementById('resultats-analyse'); if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }</script>", height=0)
-    
