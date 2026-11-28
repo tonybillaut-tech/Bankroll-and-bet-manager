@@ -86,9 +86,10 @@ st.session_state["user_id"] = user
 u_data = db.get(user, {"capital_depart": 20.0, "paris": [], "is_pro": False, "essai": 0})
 cap = get_cap(u_data)
 is_pro = bool(u_data.get("is_pro", False))
+essais_faits = int(u_data.get("essai") or 0)
 
 c_head1, c_head2, c_head3 = st.columns(3)
-c_head1.markdown(f"👤 **{user}** {'👑 `VIP PRO`' if is_pro else '🆓 `Essai`'}")
+c_head1.markdown(f"👤 **{user}** {'👑 `VIP PRO`' if is_pro else f'🆓 `Essai ({essais_faits}/10)`'}")
 c_head2.markdown(f"💰 Capital : **{cap:.2f} €**")
 if c_head3.button("🚪 Quitter", use_container_width=True):
     st.session_state["user"] = ""
@@ -135,4 +136,3 @@ for _, mod_name, fn in extra_tabs:
             fn(u_data, db, cap)
         else:
             fn(db, user, is_pro, is_android)
-            
