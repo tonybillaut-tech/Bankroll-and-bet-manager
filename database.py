@@ -1,91 +1,212 @@
-import requests, hashlib
 import streamlit as st
+import streamlit.components.v1 as components
+import pandas as pd
+import math
+from datetime import datetime
+from database import load_db, save_db
+from moteur import CHAMPIONNATS, fetch_matches, get_cap, calc_v2, calc_v3_dixon_coles, calc_v4_meta, calc_v5_darwin, get_v4_params
 
-SUPABASE_ID = "tnvjjzyssyeyvipqltws"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRudmpqenlzc3lleXZpcHFsdHdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU1Njk4NTYsImV4cCI6MjExMTE0NTg1Nn0.9VXz2mIHj-jcBfZvZWoTBIF0zSsVb3aDXoKP2P0Q7F8"
-SUPABASE_URL = "".join(["ht", "tps:", "//", SUPABASE_ID, ".supa", "base.", "co"])
+def _pick_menu(titre: str, options: list, key: str, default_idx: int = 0):
+    if key not in st.session_state or st.session_state[key] not in options:
+        st.session_state[key] = options[min(default_idx, len(options) - 1)]
+    st.caption(titre)
+    with st.popover(f"{st.session_state[key]} ▾", use_container_width=True):
+        choix = st.radio(
+            titre,
+            options,
+            index=options.index(st.session_state[key]),
+            key=f"rad_{key}",
+            label_visibility="collapsed"
+        )
+        if choix != st.session_state[key]:
+            st.session_state[key] = choix
+            st.rerun()
+    return st.session_state[key]
 
-def hash_pin(pin: str) -> str:
-    if not pin:
-        return ""
-    return hashlib.sha256(f"smartstake_salt_{pin.strip()}".encode("utf-8")).hexdigest()
+def render_analyse(*args):
+    db = load_db()
+    user = ""
+    is_pro_flag = False
+    cap_arg = None
 
-def _sb_headers():
-    return {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates"
-    }
+    if isinstance(db, dict):
+        valid_users = {k.lower(): k for k in db.keys() if k != "_v4_meta"}
+        for k_prior in ("user_id", "user", "username", "pseudo", "login", "current_user"):
+            val = st.session_state.get(k_prior)
+            if isinstance(val, str) and val.strip().lower() in valid_users:
+                user = valid_users[val.strip().lower()]
+                break
+        if not user:
+            for k_ss, v_ss in st.session_state.items():
+                if not str(k_ss).startswith(("ana_", "rad_", "bt_", "save_")) and isinstance(v_ss, str) and v_ss.strip().lower() in valid_users:
+                    user = valid_users[v_ss.strip().lower()]
+                    break
 
-def load_db():
-    try:
-        r = requests.get(f"{SUPABASE_URL}/rest/v1/smartstake_users?select=*", headers=_sb_headers(), timeout=8)
-        if r.status_code == 200:
-            db = {}
-            for row in r.json():
-                uid = row["user_id"]
-                if uid == "_v4_meta":
-                    db["_v4_meta"] = row.get("v4_meta") or {}
-                else:
-                    db[uid] = {
-                        "capital_depart": row.get("capital_depart", 20.0),
-                        "paris": row.get("paris", []),
-                        "is_pro": row.get("is_pro", False),
-                        "essai": row.get("essai", 0),
-                        "pin_hash": row.get("pin_hash", "")
-                    }
-            return db
-    except Exception:
-        pass
-    return {}
+    for a in args:
+        if type(a) is bool and a:
+            is_pro_flag = True
+        elif isinstance(a, str) and isinstance(db, dict) and not user:
+            for k_db in db.keys():
+                if k_db != "_v4_meta" and k_db.lower() == a.strip().lower():
+                    user = k_db
+        elif isinstance(a, dict) and a.get("is_pro"):
+            is_pro_flag = True
+        elif isinstance(a, (int, float)) and type(a) is not bool:
+            cap_arg = float(a)
 
-def save_db(data):
-    try:
-        payload = []
-        for uid, udata in data.items():
-            if uid == "_v4_meta":
-                payload.append({
-                    "user_id": "_v4_meta",
-                    "capital_depart": 0.0,
-                    "paris": [],
-                    "is_pro": False,
-                    "essai": 0,
-                    "pin_hash": "",
-                    "v4_meta": udata
-                })
-            else:
-                payload.append({
-                    "user_id": uid,
-                    "capital_depart": float(udata.get("capital_depart", 20.0)),
-                    "paris": udata.get("paris", []),
-                    "is_pro": bool(udata.get("is_pro", False)),
-                    "essai": int(udata.get("essai", 0)),
-                    "pin_hash": str(udata.get("pin_hash", "")),
-                    "v4_meta": {}
-                })
-        if payload:
-            requests.post(f"{SUPABASE_URL}/rest/v1/smartstake_users?on_conflict=user_id", headers=_sb_headers(), json=payload, timeout=8)
-    except Exception:
-        pass
+    u = db.get(user, {}) if (user and isinstance(db, dict)) else {}
+    cap = cap_arg if cap_arg is not None else get_cap(u)
+    is_pro = bool(is_pro_flag or u.get("is_pro", False))
+    essai = int(u.get("essai", 0))
 
-def redeem_vip_code(code: str, user_id: str) -> bool:
-    c_clean = code.strip().upper()
-    if not c_clean:
-        return False
-    sb_base = f"{SUPABASE_URL}/rest/v1/vip_codes"
-    try:
-        r = requests.get(f"{sb_base}?code=eq.{c_clean}&select=*", headers=_sb_headers(), timeout=8)
-        if r.status_code == 200:
-            item = next(iter(r.json()), None)
-            if item and not item.get("is_used", False):
-                up = requests.patch(f"{sb_base}?code=eq.{c_clean}", headers=_sb_headers(), json={"is_used": True, "used_by": user_id}, timeout=8)
-                return up.status_code in (200, 204)
-            elif item and item.get("is_used", False):
-                st.warning("Ce code a déjà été utilisé.")
-            else:
-                st.warning(f"Code '{c_clean}' introuvable.")
-    except Exception as e:
-        st.warning(f"Détail : {e}")
-    return False
-    
+    st.subheader("⚽ Analyse Prédictive & Value Bets")
+    custom_df = st.session_state.get("custom_df")
+    has_custom = isinstance(custom_df, pd.DataFrame) and len(custom_df) >= 10
+    liste_ligues = (["📂 Ligue Perso (CSV)"] if has_custom else []) + list(CHAMPIONNATS.keys())
+    ligue = _pick_menu("🏟️ Compétition (Temps Réel)", liste_ligues, "ana_ligue", 0)
+
+    if ligue == "📂 Ligue Perso (CSV)":
+        df = custom_df.copy()
+        v4_cfg = {"C": 0.5, "alpha": 0.80, "trained": False}
+        d_genes = None
+        st.caption(f"📂 Fichier personnalisé actif : **{st.session_state.get('custom_name', 'CSV')}** ({len(df)} matchs)")
+    else:
+        fd_code = CHAMPIONNATS.get(ligue)
+        v4_cfg = get_v4_params(db, fd_code)
+        d_genes = v4_cfg.get("darwin_genes")
+        with st.spinner("Connexion officielle aux résultats du championnat..."):
+            df, err = fetch_matches(fd_code)
+        if df.empty:
+            st.error(f"⚠️ Flux temporairement indisponible ({err}). Réessaie dans 1 minute.")
+            return
+        badge_v4 = f" • 🧠 V4 (`C={v4_cfg.get('C')}`, ROI `{v4_cfg.get('roi_bt', 0):+.1f}%`)" if v4_cfg.get("trained") else ""
+        badge_v5 = " • 🦖 Darwin Cloud actif" if d_genes else ""
+        st.caption(f"✅ Flux officiel actif : **{len(df)} matchs terminés**{badge_v4}{badge_v5}")
+
+    equipes = sorted(list(set(df["HomeTeam"]).union(set(df["AwayTeam"]))))
+    c1, c2 = st.columns(2)
+    with c1:
+        eq1 = _pick_menu("🏠 Domicile", equipes, "ana_eq1", 0)
+    with c2:
+        eq2 = _pick_menu("✈️ Extérieur", equipes, "ana_eq2", 1)
+
+    if eq1 == eq2:
+        st.warning("Sélectionne deux équipes différentes.")
+        return
+
+    algo = st.radio(
+        "🧠 Moteur d'analyse",
+        ["🦖 V5 Darwin (Évolution IA)", "🤖 V4 Méta-IA (Super-Cerveau)", "🧬 V3 Dixon-Coles", "⚡ V2 Classique"],
+        horizontal=True
+    )
+
+    st.markdown("#### 💶 Cotes Bookmaker à l'instant T")
+    k1, kn, k2 = st.columns(3)
+    c1_b = k1.number_input("Cote 1 (Dom)", 1.01, 50.0, 2.10, step=0.05)
+    cn_b = kn.number_input("Cote N (Nul)", 1.01, 50.0, 3.30, step=0.05)
+    c2_b = k2.number_input("Cote 2 (Ext)", 1.01, 50.0, 3.40, step=0.05)
+
+    dnb_mode = st.toggle("🔄 Option Sécurité : Remboursé si Nul (DNB)", value=False)
+    risque_pct = st.slider("🛡️ Risque maximum par pari (% du capital)", 1.0, 10.0, 5.0, step=0.5)
+
+    if st.button("🚀 Lancer l'analyse & détecter les Value Bets", type="primary", use_container_width=True):
+        if not is_pro and essai >= 3:
+            st.error("🔒 **Tes 3 analyses gratuites sont épuisées.** Passe en mode **VIP Pro** dans l'onglet **💎 Abonnement** pour continuer en illimité !")
+            return
+
+        if not is_pro and user:
+            u["essai"] = essai + 1
+            db[user] = u
+            save_db(db)
+
+        if "V5" in algo:
+            t1, tn, t2, l1, l2 = calc_v5_darwin(df, eq1, eq2, cloud_genome=d_genes)
+        elif "V4" in algo:
+            t1, tn, t2, l1, l2 = calc_v4_meta(df, eq1, eq2, C_val=v4_cfg.get("C", 0.5), alpha=v4_cfg.get("alpha", 0.80))
+        elif "V3" in algo:
+            t1, tn, t2, l1, l2 = calc_v3_dixon_coles(df, eq1, eq2)
+        else:
+            t1, tn, t2, l1, l2 = calc_v2(df, eq1, eq2)
+
+        st.session_state["last_ana"] = {
+            "eq1": eq1, "eq2": eq2,
+            "t1": t1, "tn": tn, "t2": t2, "l1": l1, "l2": l2,
+            "c1_b": c1_b, "cn_b": cn_b, "c2_b": c2_b,
+            "dnb_mode": dnb_mode, "risque_pct": risque_pct,
+            "scroll": True
+        }
+
+    res = st.session_state.get("last_ana")
+    if isinstance(res, dict) and res.get("eq1") == eq1 and res.get("eq2") == eq2:
+        t1, tn, t2 = res["t1"], res["tn"], res["t2"]
+        l1, l2 = res["l1"], res["l2"]
+        c1_b, cn_b, c2_b = res["c1_b"], res["cn_b"], res["c2_b"]
+        dnb_mode, risque_pct = res["dnb_mode"], res["risque_pct"]
+
+        st.markdown('<div id="resultats-analyse"></div>', unsafe_allow_html=True)
+        m1, mn, m2 = st.columns(3)
+        m1.metric(f"🏠 {eq1}", f"{t1:.1f}%", f"Cote juste : {100/max(1.0, t1):.2f}")
+        mn.metric("🤝 Match Nul", f"{tn:.1f}%", f"Cote juste : {100/max(1.0, tn):.2f}")
+        m2.metric(f"✈️ {eq2}", f"{t2:.1f}%", f"Cote juste : {100/max(1.0, t2):.2f}")
+
+        st.divider()
+        tot = max(1.0, t1 + tn + t2)
+        if dnb_mode:
+            cands = [
+                (f"1 DNB ({eq1})", 1.0 + (t2 / max(1.0, t1)), c1_b * (cn_b - 1.0) / cn_b),
+                (f"2 DNB ({eq2})", 1.0 + (t1 / max(1.0, t2)), c2_b * (cn_b - 1.0) / cn_b)
+            ]
+        else:
+            cands = [
+                (f"Victoire {eq1} (1)", tot / max(1.0, t1), c1_b),
+                (f"Match Nul (N)", tot / max(1.0, tn), cn_b),
+                (f"Victoire {eq2} (2)", tot / max(1.0, t2), c2_b)
+            ]
+
+        found = False
+        for label, c_theo, c_reelle in cands:
+            edge = ((c_reelle / c_theo) - 1.0) * 100.0
+            if edge >= 8.0 and c_reelle >= 1.50:
+                found = True
+                mise_opt = round(min(cap, ((cap * (risque_pct / 100.0)) * (c_reelle / 2.0)) / max(0.1, c_reelle - 1.0)), 2)
+                st.success(f"💎 **VALUE BET DÉTECTÉ : {label}**\n\n• Cote réelle : **{c_reelle:.2f}** (vs cote juste **{c_theo:.2f}**) → Avantage mathématique : **+{edge:.1f}%**\n• Mise conseillée ({risque_pct}% risque) : **{mise_opt:.2f} €**")
+                if st.button(f"📥 Enregistrer ce pari ({mise_opt:.2f} € sur {label})", key=f"save_{eq1}_{eq2}_{label}"):
+                    if not user:
+                        st.error("Connecte-toi à ton compte pour enregistrer un pari.")
+                    else:
+                        if not isinstance(u.get("paris"), list):
+                            u["paris"] = []
+                        u["paris"].append({
+                            "Date": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                            "Match": f"{eq1} vs {eq2}",
+                            "Pronostic": label,
+                            "Cote": round(c_reelle, 2),
+                            "Mise (€)": mise_opt,
+                            "Statut": "⏳ En cours"
+                        })
+                        db[user] = u
+                        save_db(db)
+                        st.toast("✅ Pari ajouté à ta bankroll !")
+                        st.rerun()
+
+        if not found:
+            st.warning("🛡️ **Aucun Value Bet détecté sur ces cotes.** La discipline consiste à passer son tour !")
+
+        grille_sc = []
+        for g1 in range(5):
+            for g2 in range(5):
+                p1 = (math.exp(-l1) * (l1 ** g1)) / math.factorial(g1)
+                p2 = (math.exp(-l2) * (l2 ** g2)) / math.factorial(g2)
+                grille_sc.append((p1 * p2 * 100.0, f"{g1}-{g2}"))
+        grille_sc.sort(reverse=True)
+        top_prob, top_sc = next(iter(grille_sc))
+
+        with st.expander(f"🎯 Score Exact estimé : {top_sc} ({top_prob:.1f}%) • Buts attendus : {l1:.2f} - {l2:.2f}", expanded=True):
+            for idx, (prob, sc) in enumerate(grille_sc):
+                if idx >= 3:
+                    break
+                mise_sc = round(min(cap * 0.025, (cap * (risque_pct / 100.0)) * 0.4), 2)
+                st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max plafonnée à 2,5 % : {mise_sc:.2f} €)*")
+
+        if res.get("scroll"):
+            res["scroll"] = False
