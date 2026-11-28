@@ -41,9 +41,10 @@ def render_analyse(*args):
     ligue = _pick("🏟️ Compétition", (["📂 Ligue Perso (CSV)"] if has_c else []) + list(CHAMPIONNATS.keys()), "a_lig")
 
     if ligue.startswith("📂"):
-        df, v4_cfg, d_genes = cdf.copy(), {"C": 0.5, "alpha": 0.8}, None
+        df, v4_cfg, d_genes, code_fd = cdf.copy(), {"C": 0.5, "alpha": 0.8}, None, ""
     else:
         fd = CHAMPIONNATS.get(ligue)
+        code_fd = fd[0] if isinstance(fd, (tuple, list)) else str(fd)
         v4_cfg = get_v4_params(db, fd)
         d_genes = v4_cfg.get("darwin_genes")
         with st.spinner("Chargement des matchs..."):
@@ -81,7 +82,7 @@ def render_analyse(*args):
         elif "V4" in algo: t1, tn, t2, l1, l2 = calc_v4_meta(df, eq1, eq2, C_val=v4_cfg.get("C", 0.5), alpha=v4_cfg.get("alpha", 0.8))
         elif "V3" in algo: t1, tn, t2, l1, l2 = calc_v3_dixon_coles(df, eq1, eq2)
         else: t1, tn, t2, l1, l2 = calc_v2(df, eq1, eq2)
-        st.session_state["last_ana"] = {"eq1": eq1, "eq2": eq2, "t1": t1, "tn": tn, "t2": t2, "l1": l1, "l2": l2, "c1": c1_b, "cn": cn_b, "c2": c2_b, "dnb": dnb, "r": r_pct, "sc": True}
+        st.session_state["last_ana"] = {"eq1": eq1, "eq2": eq2, "code": code_fd, "t1": t1, "tn": tn, "t2": t2, "l1": l1, "l2": l2, "c1": c1_b, "cn": cn_b, "c2": c2_b, "dnb": dnb, "r": r_pct, "sc": True}
 
     res = st.session_state.get("last_ana")
     if isinstance(res, dict) and res.get("eq1") == eq1 and res.get("eq2") == eq2:
@@ -104,7 +105,7 @@ def render_analyse(*args):
                 st.success(f"💎 **VALUE BET : {lbl}** • Cote **{c_re:.2f}** (juste **{c_th:.2f}**, **+{edge:.1f}%**) • Mise : **{mise:.2f} €**")
                 if st.button(f"📥 Enregistrer ce pari ({mise:.2f} €)", key=f"sv_{eq1}_{eq2}_{lbl}"):
                     if not isinstance(u.get("paris"), list): u["paris"] = []
-                    u["paris"].append({"Date": datetime.now().strftime("%d/%m/%Y %H:%M"), "Match": f"{eq1} vs {eq2}", "Pronostic": lbl, "Cote": round(c_re, 2), "Mise (€)": mise, "Statut": "⏳ En cours"})
+                    u["paris"].append({"Date": datetime.now().strftime("%d/%m/%Y %H:%M"), "Code": res.get("code", ""), "Match": f"{eq1} vs {eq2}", "Pronostic": lbl, "Cote": round(c_re, 2), "Mise (€)": mise, "Statut": "⏳ En cours"})
                     db[user] = u
                     save_db(db)
                     st.toast("✅ Pari ajouté !")
@@ -113,7 +114,7 @@ def render_analyse(*args):
             st.warning("🛡️ **Aucun Value Bet détecté sur ces cotes.**")
 
         gs = sorted([((math.exp(-l1)*(l1**g1)/math.factorial(g1))*(math.exp(-l2)*(l2**g2)/math.factorial(g2))*100.0, f"{g1}-{g2}") for g1 in range(5) for g2 in range(5)], reverse=True)
-        with st.expander(f"🎯 Score Exact : {gs[0][1]} ({gs[0][0]:.1f}%) • Buts : {l1:.2f} - {l2:.2f}", expanded=True):
+        with st.expander(f"🎯 Score Exact : {gs} ({gs:.1f}%) • Buts : {l1:.2f} - {l2:.2f}", expanded=True):
             for prob, sc in gs[:3]:
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max : {round(min(cap*0.025, cap*r_pct/250.0), 2):.2f} €)*")
         if res.get("sc"):
