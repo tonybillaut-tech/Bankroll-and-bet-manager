@@ -44,7 +44,7 @@ def render_analyse(*args):
         df, v4_cfg, d_genes, code_fd = cdf.copy(), {"C": 0.5, "alpha": 0.8}, None, ""
     else:
         fd = CHAMPIONNATS.get(ligue)
-        code_fd = fd[0] if isinstance(fd, (tuple, list)) else str(fd)
+        code_fd = next(iter(fd)) if isinstance(fd, (tuple, list)) else str(fd)
         v4_cfg = get_v4_params(db, fd)
         d_genes = v4_cfg.get("darwin_genes")
         with st.spinner("Chargement des matchs..."):
@@ -114,8 +114,11 @@ def render_analyse(*args):
             st.warning("🛡️ **Aucun Value Bet détecté sur ces cotes.**")
 
         gs = sorted([((math.exp(-l1)*(l1**g1)/math.factorial(g1))*(math.exp(-l2)*(l2**g2)/math.factorial(g2))*100.0, f"{g1}-{g2}") for g1 in range(5) for g2 in range(5)], reverse=True)
-        with st.expander(f"🎯 Score Exact : {gs} ({gs:.1f}%) • Buts : {l1:.2f} - {l2:.2f}", expanded=True):
-            for prob, sc in gs[:3]:
+        top_p, top_s = next(iter(gs))
+        with st.expander(f"🎯 Score Exact : {top_s} ({top_p:.1f}%) • Buts : {l1:.2f} - {l2:.2f}", expanded=True):
+            for idx, (prob, sc) in enumerate(gs):
+                if idx >= 3:
+                    break
                 st.write(f"• **{sc}** : **{prob:.1f}%** *(Mise max : {round(min(cap*0.025, cap*r_pct/250.0), 2):.2f} €)*")
         if res.get("sc"):
             res["sc"] = False
