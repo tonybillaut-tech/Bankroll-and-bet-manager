@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import importlib, pkgutil, inspect, hashlib, hmac
 from database import load_db, save_db, hash_pin
 from moteur import get_cap
@@ -28,6 +29,7 @@ st.markdown("""
 <style>
 .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
 div[data-testid="stMetric"] { background: #161b22; padding: 10px 14px; border-radius: 10px; border: 1px solid #2b313a; }
+button[data-baseweb="tab"] { padding: 10px 14px !important; font-size: 0.95rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -147,5 +149,38 @@ for _, mod_name, fn in extra_tabs:
             fn(u_data, db, cap)
         else:
             fn(db, user, is_pro, is_android)
+
+components.html("""
+<script>
+const doc = window.parent.document;
+if (!doc._swipeBound) {
+    doc._swipeBound = true;
+    let sx = 0, sy = 0, ignore = false;
+    doc.addEventListener('touchstart', e => {
+        if (e.touches.length !== 1) return;
+        const t = e.target;
+        ignore = !!(t && t.closest && t.closest('[data-testid="stDataFrame"], [data-baseweb="tab-list"], [data-baseweb="slider"], input'));
+        sx = e.touches[0].clientX;
+        sy = e.touches[0].clientY;
+    }, {passive: true});
+    doc.addEventListener('touchend', e => {
+        if (ignore || e.changedTouches.length !== 1) return;
+        const dx = e.changedTouches[0].clientX - sx;
+        const dy = e.changedTouches[0].clientY - sy;
+        if (Math.abs(dx) > 75 && Math.abs(dx) > Math.abs(dy) * 1.8) {
+            const list = doc.querySelector('[data-baseweb="tab-list"]');
+            if (!list) return;
+            const btns = Array.from(list.querySelectorAll('button[role="tab"]'));
+            const cur = btns.findIndex(b => b.getAttribute('aria-selected') === 'true');
+            const nxt = dx < 0 ? cur + 1 : cur - 1;
+            if (cur >= 0 && nxt >= 0 && nxt < btns.length) {
+                btns[nxt].click();
+                btns[nxt].scrollIntoView({behavior: 'smooth', inline: 'center', block: 'nearest'});
+            }
+        }
+    }, {passive: true});
+}
+</script>
+""", height=0)
 
 render_footer()
