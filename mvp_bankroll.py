@@ -27,8 +27,11 @@ def render_footer():
 st.markdown("""
 <style>
 .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
-div[data-testid="stMetric"] { background: #161b22; padding: 10px 14px; border-radius: 10px; border: 1px solid #2b313a; }
-div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.4rem !important; }
+div[data-testid="stMetric"] { background: #161b22; padding: 6px 8px !important; border-radius: 10px; border: 1px solid #2b313a; }
+div[data-testid="stMetricValue"] { font-size: 1.2rem !important; }
+div[data-testid="stMetricLabel"] p { font-size: 0.78rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+div[data-testid="stMetricDelta"] { font-size: 0.74rem !important; }
+div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.35rem !important; }
 div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] { min-width: 0 !important; flex: 1 1 0 !important; }
 div[data-testid="stHorizontalBlock"] button { padding: 0.45rem 0.25rem !important; font-size: 0.84rem !important; }
 </style>
