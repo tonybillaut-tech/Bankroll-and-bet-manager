@@ -157,25 +157,28 @@ if (!doc._swipeBound) {
     doc._swipeBound = true;
     let sx = 0, sy = 0, ignore = false;
     doc.addEventListener('touchstart', e => {
-        if (e.touches.length !== 1) return;
-        const t = e.target;
-        ignore = !!(t && t.closest && t.closest('[data-testid="stDataFrame"], [data-baseweb="tab-list"], [data-baseweb="slider"], input'));
-        sx = e.touches[0].clientX;
-        sy = e.touches[0].clientY;
+        const t0 = e.touches.item(0);
+        if (!t0 || e.touches.length !== 1) return;
+        const el = e.target;
+        ignore = !!(el && el.closest && el.closest('[data-testid="stDataFrame"], [data-baseweb="tab-list"], [data-baseweb="slider"], input'));
+        sx = t0.clientX;
+        sy = t0.clientY;
     }, {passive: true});
     doc.addEventListener('touchend', e => {
-        if (ignore || e.changedTouches.length !== 1) return;
-        const dx = e.changedTouches[0].clientX - sx;
-        const dy = e.changedTouches[0].clientY - sy;
-        if (Math.abs(dx) > 75 && Math.abs(dx) > Math.abs(dy) * 1.8) {
+        const t0 = e.changedTouches.item(0);
+        if (ignore || !t0 || e.changedTouches.length !== 1) return;
+        const dx = t0.clientX - sx;
+        const dy = t0.clientY - sy;
+        if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.4) {
             const list = doc.querySelector('[data-baseweb="tab-list"]');
             if (!list) return;
             const btns = Array.from(list.querySelectorAll('button[role="tab"]'));
             const cur = btns.findIndex(b => b.getAttribute('aria-selected') === 'true');
             const nxt = dx < 0 ? cur + 1 : cur - 1;
-            if (cur >= 0 && nxt >= 0 && nxt < btns.length) {
-                btns[nxt].click();
-                btns[nxt].scrollIntoView({behavior: 'smooth', inline: 'center', block: 'nearest'});
+            const target = btns.at(nxt);
+            if (cur >= 0 && nxt >= 0 && target) {
+                target.click();
+                target.scrollIntoView({behavior: 'smooth', inline: 'center', block: 'nearest'});
             }
         }
     }, {passive: true});
