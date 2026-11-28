@@ -71,8 +71,8 @@ def render_analyse(*args):
     r_pct = st.slider("🛡️ Risque max (%)", 1.0, 10.0, 5.0, step=0.5)
 
     if st.button("🚀 Lancer l'analyse & détecter les Value Bets", type="primary", use_container_width=True):
-        if not is_pro and essai >= 3:
-            st.error("🔒 **3 essais gratuits épuisés.** Passe en **VIP Pro** !")
+        if not is_pro and essai >= 10:
+            st.error("🔒 **Tes 10 analyses gratuites sont épuisées.** Passe en **VIP Pro** !")
             return
         if not is_pro and user:
             u["essai"] = essai + 1
