@@ -1,179 +1,93 @@
 import streamlit as st
-import importlib, pkgutil, inspect, hashlib, hmac
-from database import load_db, save_db, hash_pin
-from moteur import get_cap
-from onglets.analyse import render_analyse
-from onglets.backtest import render_backtest
-from onglets.donnees import render_donnees
+import pandas as pd
+from database import load_db
 
-st.set_page_config(page_title="SmartStake — Value Bet & Bankroll IA", page_icon="⚽", layout="centered")
-is_android = st.query_params.get("platform", "") == "android"
+def _get_uid(db):
+    if isinstance(db, dict):
+        v_users = {k.lower(): k for k in db if k != "_v4_meta"}
+        for v in [st.session_state.get(k) for k in ("user_id", "user", "username", "pseudo", "login")] + list(st.session_state.values()):
+            if isinstance(v, str) and v.strip().lower() in v_users:
+                return v_users[v.strip().lower()]
+    return st.session_state.get("user_id", "")
 
-def make_token(username: str, pin_hash: str) -> str:
-    secret = st.secrets.get("SUPABASE_KEY", "smartstake_secret_2026").encode("utf-8")
-    msg = f"{username.lower()}:{pin_hash}".encode("utf-8")
-    return hmac.new(secret, msg, hashlib.sha256).hexdigest()
+def render_stats(user_data, db, capital_actuel):
+    st.subheader("📈 Statistiques & Performance")
+    fresh_db = load_db() or db
+    uid = _get_uid(fresh_db)
+    u = fresh_db.get(uid, user_data) if uid else user_data
+    cap_dep = float(u.get("capital_depart") or 20.0)
+    paris = u.get("paris") if isinstance(u.get("paris"), list) else []
 
-def render_footer():
-    st.divider()
-    st.caption(
-        "🔞 **Application réservée aux personnes majeures (+18 ans).** "
-        "SmartStake est un outil d'aide à la décision mathématique et de gestion de bankroll : "
-        "aucun gain n'est garanti. Jouer comporte des risques (endettement, isolement, dépendance). "
-        "Aide et information : **09 74 75 13 13** (appel non surtaxé) ou [joueurs-info-service.fr](https://joueurs-info-service.fr) • "
-        "[Règles de confidentialité](https://github.com)"
-    )
+    if not paris:
+        st.info("Aucun pari enregistré pour le moment. Tes statistiques apparaîtront dès ton premier pari dans ⚽ Analyse.")
+        return
 
-st.markdown("""
-<style>
-.block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
-div[data-testid="stMetric"] { background: #161b22; padding: 6px 8px !important; border-radius: 10px; border: 1px solid #2b313a; }
-div[data-testid="stMetricValue"] { font-size: 1.2rem !important; }
-div[data-testid="stMetricLabel"] p { font-size: 0.78rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-div[data-testid="stMetricDelta"] { font-size: 0.74rem !important; }
-div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.35rem !important; }
-div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] { min-width: 0 !important; flex: 1 1 0 !important; }
-div[data-testid="stHorizontalBlock"] button { padding: 0.45rem 0.25rem !important; font-size: 0.84rem !important; }
-</style>
-""", unsafe_allow_html=True)
+    gagnes, perdus, remb, encours = 0, 0, 0, 0
+    mise_totale, profit_net = 0.0, 0.0
+    cotes_gagnantes = []
+    serie_cur, serie_max, meilleur_gain = 0, 0, 0.0
+    courbe = [cap_dep]
+    cap_run = cap_dep
+    par_ligue = {}
 
-st.title("⚽ SmartStake")
-st.caption("v11.1 • Moteurs V2, V3 Dixon-Coles, V4 Méta-IA & 🦖 V5 Darwin")
+    for p in paris:
+        st_p = str(p.get("Statut", ""))
+        mise = float(p.get("Mise (€)", p.get("Mise", 0.0)) or 0.0)
+        cote = float(p.get("Cote", 1.0) or 1.0)
+        lig = str(p.get("Code") or "Autre")
 
-db = load_db()
+        if "✅" in st_p or "Gagné" in st_p:
+            gagnes += 1
+            gain_p = mise * (cote - 1.0)
+            mise_totale += mise
+            profit_net += gain_p
+            cap_run += gain_p
+            courbe.append(round(cap_run, 2))
+            cotes_gagnantes.append(cote)
+            serie_cur += 1
+            serie_max = max(serie_max, serie_cur)
+            meilleur_gain = max(meilleur_gain, gain_p)
+            par_ligue.setdefault(lig, {"Paris": 0, "Gagnés": 0, "Bilan (€)": 0.0})
+            par_ligue[lig]["Paris"] += 1
+            par_ligue[lig]["Gagnés"] += 1
+            par_ligue[lig]["Bilan (€)"] += gain_p
+        elif "❌" in st_p or "Perdu" in st_p:
+            perdus += 1
+            mise_totale += mise
+            profit_net -= mise
+            cap_run -= mise
+            courbe.append(round(cap_run, 2))
+            serie_cur = 0
+            par_ligue.setdefault(lig, {"Paris": 0, "Gagnés": 0, "Bilan (€)": 0.0})
+            par_ligue[lig]["Paris"] += 1
+            par_ligue[lig]["Bilan (€)"] -= mise
+        elif "🔄" in st_p or "Remboursé" in st_p:
+            remb += 1
+        else:
+            encours += 1
 
-if "user" not in st.session_state:
-    st.session_state["user"] = ""
+    termines = gagnes + perdus
+    winrate = (gagnes / termines * 100.0) if termines > 0 else 0.0
+    roi = (profit_net / mise_totale * 100.0) if mise_totale > 0 else 0.0
+    cote_moy = (sum(cotes_gagnantes) / len(cotes_gagnantes)) if cotes_gagnantes else 0.0
 
-if not st.session_state["user"]:
-    saved_u = st.query_params.get("u", "")
-    saved_tok = st.query_params.get("t", "")
-    if saved_u and saved_tok and isinstance(db, dict):
-        matched = next((k for k in db.keys() if k != "_v4_meta" and k.lower() == saved_u.lower()), None)
-        if matched:
-            p_hash = str(db[matched].get("pin_hash", ""))
-            if hmac.compare_digest(saved_tok, make_token(matched, p_hash)):
-                st.session_state["user"] = matched
+    r1_c1, r1_c2 = st.columns(2)
+    r1_c1.metric("🎯 Taux de réussite", f"{winrate:.1f}%", f"{gagnes}G / {perdus}P ({remb} remb.)")
+    r1_c2.metric("📊 ROI Global", f"{roi:+.1f}%", f"{profit_net:+.2f} € net")
 
-if not st.session_state["user"]:
-    tab_login, tab_reg = st.tabs(["🔐 Connexion", "📝 Créer un compte"])
-    with tab_login:
-        u_in = st.text_input("Identifiant", key="login_u").strip()
-        p_in = st.text_input("Code PIN / Mot de passe", type="password", key="login_p").strip()
-        stay_logged = st.checkbox("🔒 Rester connecté sur cet appareil", value=True)
-        if st.button("Se connecter", type="primary", use_container_width=True):
-            matched_user = next((k for k in db.keys() if k != "_v4_meta" and k.lower() == u_in.lower()), None)
-            if matched_user:
-                stored_pin = str(db[matched_user].get("pin_hash", ""))
-                if not stored_pin or stored_pin == hash_pin(p_in):
-                    st.session_state["user"] = matched_user
-                    if stay_logged:
-                        st.query_params["u"] = matched_user
-                        st.query_params["t"] = make_token(matched_user, stored_pin)
-                    st.rerun()
-                else:
-                    st.error("Code PIN incorrect.")
-            else:
-                st.error("Identifiant introuvable.")
-    with tab_reg:
-        new_u = st.text_input("Choisis un identifiant", key="reg_u").strip()
-        new_p = st.text_input("Choisis un code PIN (4 à 8 caractères)", type="password", key="reg_p").strip()
-        cap_dep = st.number_input("Capital de départ (€)", 5.0, 50000.0, 20.0, step=5.0)
-        if st.button("Créer mon compte", type="primary", use_container_width=True):
-            exists = any(k.lower() == new_u.lower() for k in db.keys())
-            if len(new_u) < 3 or new_u == "_v4_meta":
-                st.warning("Choisis un identifiant d'au moins 3 caractères.")
-            elif exists:
-                st.error("Cet identifiant est déjà utilisé.")
-            elif len(new_p) < 4:
-                st.warning("Le code PIN doit contenir au moins 4 caractères.")
-            else:
-                p_h = hash_pin(new_p)
-                db[new_u] = {"capital_depart": float(cap_dep), "paris": [], "is_pro": False, "essai": 0, "pin_hash": p_h}
-                save_db(db)
-                st.session_state["user"] = new_u
-                st.query_params["u"] = new_u
-                st.query_params["t"] = make_token(new_u, p_h)
-                st.rerun()
-    render_footer()
-    st.stop()
+    r2_c1, r2_c2 = st.columns(2)
+    r2_c1.metric("💎 Cote moy. gagnante", f"{cote_moy:.2f}" if cote_moy > 0 else "—", f"Max : +{meilleur_gain:.2f} €")
+    r2_c2.metric("🔥 Meilleure série", f"{serie_max} victoire(s)", f"{encours} en cours")
 
-user = st.session_state["user"]
-st.session_state["user_id"] = user
-u_data = db.get(user, {"capital_depart": 20.0, "paris": [], "is_pro": False, "essai": 0})
-cap = get_cap(u_data)
-is_pro = bool(u_data.get("is_pro", False))
-essais_faits = int(u_data.get("essai") or 0)
+    if len(courbe) > 1:
+        st.markdown("#### 📈 Évolution de la Bankroll (€)")
+        df_courbe = pd.DataFrame({"Bankroll (€)": courbe})
+        st.line_chart(df_courbe, use_container_width=True)
 
-c_head1, c_head2, c_head3 = st.columns(3)
-c_head1.markdown(f"👤 **{user}** {'👑 `VIP PRO`' if is_pro else f'🆓 `Essai ({essais_faits}/10)`'}")
-c_head2.markdown(f"💰 Capital : **{cap:.2f} €**")
-if c_head3.button("🚪 Quitter", use_container_width=True):
-    st.session_state["user"] = ""
-    st.session_state["user_id"] = ""
-    if "u" in st.query_params:
-        del st.query_params["u"]
-    if "t" in st.query_params:
-        del st.query_params["t"]
-    st.rerun()
-
-extra_tabs = []
-for _, mod_name, _ in pkgutil.iter_modules(["onglets"]):
-    if mod_name not in ("analyse", "backtest", "donnees"):
-        try:
-            mod = importlib.import_module(f"onglets.{mod_name}")
-            fn = next((v for k, v in inspect.getmembers(mod, inspect.isfunction) if k.startswith("render_")), None)
-            if fn:
-                label = "📜 Bankroll" if ("bank" in mod_name or "hist" in mod_name) else ("📈 Stats" if "stat" in mod_name else ("💎 VIP" if ("vip" in mod_name or "abo" in mod_name) else ("📘 Guide" if ("info" in mod_name or "guide" in mod_name) else f"📌 {mod_name.capitalize()}")))
-                extra_tabs.append((label, mod_name, fn))
-        except Exception:
-            pass
-
-nav_items = [("⚽ Analyse", "analyse", None), ("📊 Backtest", "backtest", None), ("📂 CSV", "donnees", None)] + extra_tabs
-labels = [lbl for lbl, _, _ in nav_items]
-
-if "active_tab" not in st.session_state or st.session_state["active_tab"] not in labels:
-    st.session_state["active_tab"] = next(iter(labels))
-
-for row_start in range(0, len(labels), 3):
-    cols = st.columns(3)
-    for idx_col in range(min(3, len(labels) - row_start)):
-        lbl = labels[row_start + idx_col]
-        is_sel = (st.session_state["active_tab"] == lbl)
-        if cols[idx_col].button(lbl, key=f"nav_{row_start + idx_col}", type="primary" if is_sel else "secondary", use_container_width=True):
-            st.session_state["active_tab"] = lbl
-            st.rerun()
-
-st.divider()
-cur_idx = labels.index(st.session_state["active_tab"])
-_, cur_mod, cur_fn = nav_items[cur_idx]
-
-if cur_mod == "analyse":
-    render_analyse(user, db, cap, is_pro)
-elif cur_mod == "backtest":
-    render_backtest()
-elif cur_mod == "donnees":
-    render_donnees()
-elif cur_fn:
-    n_params = len(inspect.signature(cur_fn).parameters)
-    if n_params == 0:
-        cur_fn()
-    elif n_params == 2:
-        cur_fn(db, user)
-    elif n_params == 3:
-        cur_fn(u_data, db, cap)
-    else:
-        cur_fn(db, user, is_pro, is_android)
-
-st.divider()
-c_prev, c_next = st.columns(2)
-if cur_idx > 0:
-    if c_prev.button(f"◀ {labels[cur_idx - 1]}", key="nav_prev", use_container_width=True):
-        st.session_state["active_tab"] = labels[cur_idx - 1]
-        st.rerun()
-if cur_idx < len(labels) - 1:
-    if c_next.button(f"{labels[cur_idx + 1]} ▶", key="nav_next", use_container_width=True):
-        st.session_state["active_tab"] = labels[cur_idx + 1]
-        st.rerun()
-
-render_footer()
+    if par_ligue:
+        st.markdown("#### 🏟️ Bilan par Compétition")
+        rows = []
+        for k, v in sorted(par_ligue.items(), key=lambda x: x["Bilan (€)"], reverse=True):
+            taux = (v["Gagnés"] / v["Paris"] * 100.0) if v["Paris"] > 0 else 0.0
+            rows.append({"Ligue": k, "Paris": v["Paris"], "Réussite": f"{taux:.0f}%", "Bilan (€)": round(v["Bilan (€)"], 2)})
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
