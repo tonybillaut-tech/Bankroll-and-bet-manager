@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import importlib, pkgutil, inspect, hashlib, hmac
 from database import load_db, save_db, hash_pin
 from moteur import get_cap
@@ -29,7 +28,6 @@ st.markdown("""
 <style>
 .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
 div[data-testid="stMetric"] { background: #161b22; padding: 10px 14px; border-radius: 10px; border: 1px solid #2b313a; }
-button[data-baseweb="tab"] { padding: 10px 14px !important; font-size: 0.95rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -125,65 +123,55 @@ for _, mod_name, _ in pkgutil.iter_modules(["onglets"]):
         except Exception:
             pass
 
-tab_labels = ["⚽ Analyse", "📊 Backtest", "📂 CSV / Perso"] + [lbl for lbl, _, _ in extra_tabs]
-tabs = st.tabs(tab_labels)
-it_tabs = iter(tabs)
+nav_items = [("⚽ Analyse", "analyse", None), ("📊 Backtest", "backtest", None), ("📂 CSV", "donnees", None)] + extra_tabs
+labels = [lbl for lbl, _, _ in nav_items]
 
-with next(it_tabs):
+if "active_tab" not in st.session_state or st.session_state["active_tab"] not in labels:
+    st.session_state["active_tab"] = labels
+
+for row_start in range(0, len(labels), 3):
+    cols = st.columns(3)
+    for idx_col, lbl in enumerate(labels[row_start:row_start + 3]):
+        is_sel = (st.session_state["active_tab"] == lbl)
+        if cols.at(idx_col) if hasattr(cols, "at") else cols[idx_col]:
+            pass
+    for idx_col in range(min(3, len(labels) - row_start)):
+        lbl = labels[row_start + idx_col]
+        is_sel = (st.session_state["active_tab"] == lbl)
+        if cols[idx_col].button(lbl, key=f"nav_{row_start + idx_col}", type="primary" if is_sel else "secondary", use_container_width=True):
+            st.session_state["active_tab"] = lbl
+            st.rerun()
+
+st.divider()
+cur_idx = labels.index(st.session_state["active_tab"])
+_, cur_mod, cur_fn = nav_items[cur_idx]
+
+if cur_mod == "analyse":
     render_analyse(user, db, cap, is_pro)
-
-with next(it_tabs):
+elif cur_mod == "backtest":
     render_backtest()
-
-with next(it_tabs):
+elif cur_mod == "donnees":
     render_donnees()
+elif cur_fn:
+    n_params = len(inspect.signature(cur_fn).parameters)
+    if n_params == 0:
+        cur_fn()
+    elif n_params == 2:
+        cur_fn(db, user)
+    elif n_params == 3:
+        cur_fn(u_data, db, cap)
+    else:
+        cur_fn(db, user, is_pro, is_android)
 
-for _, mod_name, fn in extra_tabs:
-    with next(it_tabs):
-        n_params = len(inspect.signature(fn).parameters)
-        if n_params == 0:
-            fn()
-        elif n_params == 2:
-            fn(db, user)
-        elif n_params == 3:
-            fn(u_data, db, cap)
-        else:
-            fn(db, user, is_pro, is_android)
-
-components.html("""
-<script>
-const doc = window.parent.document;
-if (!doc.getElementById('swipe-css')) {
-    const s = doc.createElement('style');
-    s.id = 'swipe-css';
-    s.textContent = 'section[data-testid="stMain"], .main { touch-action: pan-y !important; }';
-    doc.head.appendChild(s);
-}
-if (!doc._swipeV2) {
-    doc._swipeV2 = true;
-    let sx = 0, sy = 0, skip = false;
-    const onStart = (x, y, el) => {
-        skip = !!(el && el.closest && el.closest('[data-testid="stDataFrame"], [data-baseweb="tab-list"], [data-baseweb="slider"], input'));
-        sx = x; sy = y;
-    };
-    const onEnd = (x, y) => {
-        if (skip) return;
-        const dx = x - sx, dy = y - sy;
-        if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-            const btns = Array.from(doc.querySelectorAll('button[data-testid="stTab"], button[role="tab"]'));
-            const cur = btns.findIndex(b => b.getAttribute('aria-selected') === 'true');
-            const nxt = dx < 0 ? cur + 1 : cur - 1;
-            const target = btns.at(nxt);
-            if (cur >= 0 && nxt >= 0 && target) {
-                target.click();
-                target.scrollIntoView({behavior: 'smooth', inline: 'center', block: 'nearest'});
-            }
-        }
-    };
-    doc.addEventListener('touchstart', e => { const t = e.touches.item(0); if (t) onStart(t.clientX, t.clientY, e.target); }, {passive: true, capture: true});
-    doc.addEventListener('touchend', e => { const t = e.changedTouches.item(0); if (t) onEnd(t.clientX, t.clientY); }, {passive: true, capture: true});
-}
-</script>
-""", height=0)
+st.divider()
+c_prev, c_next = st.columns(2)
+if cur_idx > 0:
+    if c_prev.button(f"◀ {labels[cur_idx - 1]}", key="nav_prev", use_container_width=True):
+        st.session_state["active_tab"] = labels[cur_idx - 1]
+        st.rerun()
+if cur_idx < len(labels) - 1:
+    if c_next.button(f"{labels[cur_idx + 1]} ▶", key="nav_next", use_container_width=True):
+        st.session_state["active_tab"] = labels[cur_idx + 1]
+        st.rerun()
 
 render_footer()
