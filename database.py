@@ -43,33 +43,39 @@ def load_db():
 
 def save_db(data):
     try:
-        payload = []
         for uid, udata in data.items():
             if uid == "_v4_meta":
-                payload.append({
-                    "user_id": "_v4_meta",
-                    "capital_depart": 0.0,
-                    "paris": [],
-                    "is_pro": False,
-                    "essai": 0,
-                    "pin_hash": "",
-                    "v4_meta": udata
-                })
+                requests.patch(
+                    f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq._v4_meta",
+                    headers=_sb_headers(),
+                    json={"v4_meta": udata},
+                    timeout=8
+                )
             else:
                 p_list = udata.get("paris") if isinstance(udata.get("paris"), list) else []
-                payload.append({
-                    "user_id": uid,
-                    "capital_depart": float(udata.get("capital_depart", 20.0)),
+                body = {
+                    "capital_depart": float(udata.get("capital_depart") or 20.0),
                     "paris": p_list,
                     "is_pro": bool(udata.get("is_pro", False)),
-                    "essai": int(udata.get("essai", 0)),
-                    "pin_hash": str(udata.get("pin_hash", "")),
-                    "v4_meta": {}
-                })
-        if payload:
-            requests.post(f"{SUPABASE_URL}/rest/v1/smartstake_users?on_conflict=user_id", headers=_sb_headers(), json=payload, timeout=8)
-    except Exception:
-        pass
+                    "essai": int(udata.get("essai") or 0),
+                    "pin_hash": str(udata.get("pin_hash") or "")
+                }
+                r = requests.patch(
+                    f"{SUPABASE_URL}/rest/v1/smartstake_users?user_id=eq.{uid}",
+                    headers=_sb_headers(),
+                    json=body,
+                    timeout=8
+                )
+                if r.status_code not in (200, 204):
+                    body["user_id"] = uid
+                    requests.post(
+                        f"{SUPABASE_URL}/rest/v1/smartstake_users",
+                        headers=_sb_headers(),
+                        json=body,
+                        timeout=8
+                    )
+    except Exception as e:
+        st.error(f"Erreur sauvegarde Supabase : {e}")
 
 def redeem_vip_code(code: str, user_id: str) -> bool:
     c_clean = code.strip().upper()
